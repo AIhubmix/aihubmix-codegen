@@ -6,16 +6,14 @@
  * 做到「面板显示什么 == 请求发什么 == 代码示例出什么」。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { CAP_GATED_WIRE_KEYS, SPECIAL_NUM_KEYS } from '../config/wire-policy.js';
+import { SPECIAL_NUM_KEYS } from '../config/wire-policy.js';
+import { CAP_GATED_WIRE_KEYS, emitCapabilities } from './capabilities.js';
+import { inSchema, isEmptyContainer } from './gate.js';
 import { buildMediaContent } from './multimodal.js';
 import { buildMessages } from './messages.js';
-import { chatToolsArr, geminiToolsArr, msgToolsArr, respToolsArr, toolChoiceWire } from './tools.js';
-import { chatResponseFormat, msgOutputFormat, respTextFormat } from './structured.js';
 
-/** 该参数键是否应下发：未提供 paramKeys 则不门控（向后兼容）；提供则只发 schema 声明的键。 */
-export function inSchema(ctx: CodeGenCtx, key: string): boolean {
-  return !ctx.paramKeys || ctx.paramKeys.includes(key);
-}
+// 门控小工具住 gate.ts（body 与 capabilities 都要用，分文件避免成环），这里转出保持既有 import 路径。
+export { inSchema, isEmptyContainer };
 
 /** 把配置的 enum/字符串参数写进 body（取值非空且 ≠ schema 默认才发）。 */
 function emitEnums(b: Record<string, unknown>, ctx: CodeGenCtx): void {
@@ -26,19 +24,6 @@ function emitEnums(b: Record<string, unknown>, ctx: CodeGenCtx): void {
     if (enumDefaults && enumDefaults[k] === v) continue; // 等于默认不发
     b[k] = v;
   }
-}
-
-/** 是否为空容器（空对象 {} 或空数组 []）——视为未设置，不下发。 */
-export function isEmptyContainer(v: unknown): boolean {
-  if (Array.isArray(v)) return v.length === 0;
-  if (v !== null && typeof v === 'object') return Object.keys(v as object).length === 0;
-  return false;
-}
-
-/** parallel_tool_calls：依附 tools，只在 tools 能力开启的门控块内调用；schema 未声明该键则不发。 */
-function emitParallelToolCalls(b: Record<string, unknown>, ctx: CodeGenCtx): void {
-  const ptc = (ctx.objects as Record<string, unknown> | undefined)?.parallel_tool_calls;
-  if (typeof ptc === 'boolean' && inSchema(ctx, 'parallel_tool_calls')) b.parallel_tool_calls = ptc;
 }
 
 /** 把配置的结构化参数（object/array/map）写进 body：非空、schema 声明、且非空容器才发。 */
@@ -106,34 +91,7 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitEnums(b, ctx);
     emitObjects(b, ctx);
     emitExtraNumbers(b, ctx, proto);
-    if (ctx.tools) {
-      b.tools = msgToolsArr(ctx.tools);
-      const tcw = toolChoiceWire('messages', ctx.toolChoice);
-      if (tcw !== undefined) b.tool_choice = tcw;
-      emitParallelToolCalls(b, ctx);
-    }
-    if (ctx.structured) {
-      const fmt = msgOutputFormat(ctx.structured);
-      if (fmt) b.output_config = { format: fmt };
-    }
-    // thinking 是 discriminated union（enabled/disabled/adaptive）。thinkAdaptive（该模型
-    // output_config.effort 有真实 enum，含 xhigh 等 budget_tokens 换算表覆盖不到的档位）时走
-    // adaptive 形态——effort 直发到 output_config，不经本地换算，与展示的等级选项同一个字段
-    // （thinkWireLabel 标的也是 output_config.effort）。否则维持旧 enabled 形态（budget_tokens
-    // 由本地档位表换算）；组内非归能力子字段走 structParams.thinking，随能力一起下发——同 responses
-    // 的 reasoning 处理方式，type/budget_tokens 仍在后覆盖，保证判别式字段不被结构参数误改。
-    if (ctx.think) {
-      if (ctx.thinkAdaptive) {
-        b.thinking = { type: 'adaptive' };
-        b.output_config = { ...((b.output_config as Record<string, unknown>) ?? {}), effort: ctx.thinkLevel };
-      } else {
-        // budget_tokens 现按类型渲染成数值输入框（无 enum 时不再有 tier 可选）——原样透传
-        // structParams.thinking 里用户填的值，不读不编造本地档位兜底；schema 没给默认值就是没有，
-        // 没填就不下发，不能拿写死的数字充数。
-        const thinkingObj = (ctx.objects as Record<string, Record<string, unknown> | undefined>)?.thinking;
-        b.thinking = { ...(thinkingObj ?? {}), type: 'enabled' };
-      }
-    }
+    emitCapabilities(b, ctx, proto);
     b.stream = stream;
     return b;
   }
@@ -152,19 +110,9 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitEnums(b, ctx);
     emitObjects(b, ctx);
     emitExtraNumbers(b, ctx, proto);
-    if (ctx.tools) {
-      b.tools = respToolsArr(ctx.tools);
-      const tcw = toolChoiceWire('responses', ctx.toolChoice);
-      if (tcw !== undefined) b.tool_choice = tcw;
-      emitParallelToolCalls(b, ctx);
-    }
     // text / reasoning 对象由能力门控下发：开启能力才发，且带上组内子字段（verbosity / mode/summary/…，
     // 值来自 structParams，开启时已预填有默认的子字段）+ 归能力的子键（format / effort）。关掉能力则整个不发。
-    const objs = (ctx.objects ?? {}) as Record<string, Record<string, unknown> | undefined>;
-    if (ctx.structured)
-      b.text = { ...(objs.text ?? {}), format: respTextFormat(ctx.structured) };
-    if (ctx.think)
-      b.reasoning = { ...(objs.reasoning ?? {}), effort: ctx.thinkLevel };
+    emitCapabilities(b, ctx, proto);
     b.stream = stream;
     return b;
   }
@@ -187,12 +135,7 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitObjects(gc, ctx); // stopSequences 等
     emitExtraNumbers(gc, ctx, proto); // topP/topK/maxOutputTokens/candidateCount/frequencyPenalty/...
     if (Object.keys(gc).length) b.generationConfig = gc;
-    if (ctx.tools) {
-      b.tools = geminiToolsArr(ctx.tools);
-      const tcw = toolChoiceWire('gemini', ctx.toolChoice);
-      if (tcw !== undefined) b.toolConfig = tcw;
-      emitParallelToolCalls(b, ctx);
-    }
+    emitCapabilities(b, ctx, proto);
     return b;
   }
   // chat completions
@@ -226,15 +169,7 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
   emitEnums(b, ctx);
   emitObjects(b, ctx);
   emitExtraNumbers(b, ctx, proto);
-  if (ctx.tools) {
-    b.tools = chatToolsArr(ctx.tools);
-    const tcw = toolChoiceWire('chat', ctx.toolChoice);
-    if (tcw !== undefined) b.tool_choice = tcw;
-    emitParallelToolCalls(b, ctx);
-  }
-  if (ctx.structured) b.response_format = chatResponseFormat(ctx.structured);
-  if (ctx.think) b.reasoning_effort = ctx.thinkLevel;
-  if (ctx.webSearch) b.web_search_options = {}; // provider 侧联网搜索（一次调用即返回结果）
+  emitCapabilities(b, ctx, proto);
   b.stream = stream;
   return b;
 }

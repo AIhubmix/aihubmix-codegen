@@ -35,6 +35,7 @@ export { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from './config/
 // ---- wire 层（真实请求与 codegen 共用）----
 export { authHeaders } from './wire/auth.js';
 export { buildBody } from './wire/body.js';
+export { CAPABILITIES, CAP_GATED_WIRE_KEYS, type CapabilityDef } from './wire/capabilities.js';
 export { endpointPath } from './wire/endpoint.js';
 export { buildMessages } from './wire/messages.js';
 export { parseToolCallArgs } from './wire/schema.js';

@@ -2,10 +2,8 @@
  * wire 下发策略的几张名单 —— 纯数据，改这里就改行为，不用翻 renderer。
  */
 
-// 能力接管字段：text/reasoning/thinking 由输出/思考能力接管（对象，带默认+并入 format/effort/
-// budget_tokens），parallel_tool_calls 由 tools 接管（布尔，随 tools 一起下发）——都不走通用
-// emitObjects（那样不受能力开关门控，关掉能力后残留值仍会被发出），改由 buildBody 对应协议的能力门控块下发。
-export const CAP_GATED_WIRE_KEYS = new Set(['text', 'reasoning', 'thinking', 'parallel_tool_calls']);
+// 注：CAP_GATED_WIRE_KEYS（能力接管的 wire 键）不在这里 —— 它由 wire/capabilities.ts 的
+// CAPABILITIES 表自动导出。写死在这儿会变成第二份手写清单，漏一边就会「关掉能力后残留值仍被发出」。
 
 // 有特殊下发逻辑的数值参数（改名/互斥默认跳过/上限），不走通用数值兜底，避免重复或覆盖。
 export const SPECIAL_NUM_KEYS = new Set([
