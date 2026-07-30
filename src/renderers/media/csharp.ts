@@ -1,7 +1,7 @@
 /**
  * 媒体 C# renderer（HttpClient）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -16,7 +16,7 @@ using System.Text;
 ${note}// 同步文生图：POST ${ctx.submitPath}（阻塞返回统一任务对象，结果在 output[]，
 // 每项含 b64_json 或 content_url；content_url 下载需带同一 Bearer，约 30 分钟过期）
 var client = new HttpClient();
-client.DefaultRequestHeaders.Add("Authorization", "Bearer AIHUBMIX_API_KEY");
+client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
 
 var json = """
 ${bodyStr}
@@ -39,7 +39,7 @@ using System.Text.Json;
 
 // 异步文生视频：Step 1 提交，Step 2 轮询
 var client = new HttpClient();
-client.DefaultRequestHeaders.Add("Authorization", "Bearer AIHUBMIX_API_KEY");
+client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
 var baseUrl = "${BASE}";
 
 // Step 1：提交视频生成任务

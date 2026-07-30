@@ -1,7 +1,7 @@
 /**
  * 媒体 cURL renderer：图（同步单段 / multipart）/ 视频（提交 + 轮询 + 下载三段）。
  */
-import { BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { shellSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -12,7 +12,7 @@ export function mediaImageCurl(ctx: MediaCtx): string {
   const url = `${BASE}${ctx.submitPath}`;
   const download = `
 # Download a content_url (same Bearer key required; expires in ~30 minutes):
-# curl -H "Authorization: Bearer $AIHUBMIX_API_KEY" -o image.png "<content_url>"`;
+# curl -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" -o image.png "<content_url>"`;
 
   if (ctx.encoding === 'multipart') {
     const { data, files } = splitMultipart(ctx);
@@ -20,7 +20,7 @@ export function mediaImageCurl(ctx: MediaCtx): string {
     const fileFlags = files.map((k) => `  -F "${k}=@${k}.png" \\`).join('\n');
     return `# Image edit (multipart/form-data): POST ${ctx.submitPath} — binary source image upload
 curl ${url} \\
-  -H "Authorization: Bearer $AIHUBMIX_API_KEY" \\
+  -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" \\
 ${dataFlags}
 ${fileFlags.replace(/\\\n?$/, '')}
 ${download.trim()}`;
@@ -31,7 +31,7 @@ ${download.trim()}`;
 # Results are in output[]; each item has b64_json or content_url.
 curl ${url} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer $AIHUBMIX_API_KEY" \\
+  -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" \\
   -d '${shellSafe(bodyStr)}'
 ${download}`;
 }
@@ -45,15 +45,15 @@ export function mediaVideoCurl(ctx: MediaCtx): string {
 # Step 1: submit the video job (returns { "id": "<video_id>", "status": "pending", ... })
 curl ${BASE}${ctx.submitPath} \\
   -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer $AIHUBMIX_API_KEY" \\
+  -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" \\
   -d '${shellSafe(bodyStr)}'
 
 # Step 2: poll the job status (replace <video_id> with the id from step 1)
 # status: pending → in_progress → completed | failed | cancelled
 # when completed, the result is in output[0].content_url
 curl ${BASE}${pollPath} \\
-  -H "Authorization: Bearer $AIHUBMIX_API_KEY"
+  -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}"
 
 # Step 3: download the artifact (same Bearer key required; expires in ~30 minutes)
-curl -H "Authorization: Bearer $AIHUBMIX_API_KEY" -o video.mp4 "<content_url>"`;
+curl -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" -o video.mp4 "<content_url>"`;
 }

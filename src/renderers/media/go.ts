@@ -1,7 +1,7 @@
 /**
  * 媒体 Go renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { goRawSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -28,7 +28,7 @@ ${goRawSafe(bodyStr)}
 \t\`)
 \treq, _ := http.NewRequest("POST", "${BASE}${ctx.submitPath}", bytes.NewBuffer(payload))
 \treq.Header.Set("Content-Type", "application/json")
-\treq.Header.Set("Authorization", "Bearer AIHUBMIX_API_KEY")
+\treq.Header.Set("Authorization", "Bearer ${API_KEY_PLACEHOLDER}")
 
 \tresp, err := http.DefaultClient.Do(req)
 \tif err != nil {
@@ -58,7 +58,7 @@ import (
 func main() {
 \t// 异步文生视频：Step 1 提交，Step 2 轮询
 \tbase := "${BASE}"
-\tapiKey := "AIHUBMIX_API_KEY"
+\tapiKey := "${API_KEY_PLACEHOLDER}"
 
 \t// Step 1：提交视频生成任务
 \tpayload := []byte(\`

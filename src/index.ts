@@ -27,11 +27,15 @@ export type {
 
 // ---- 配置词表 ----
 export { LANGS } from './config/languages.js';
-export { PROTOCOLS } from './config/protocols.js';
-export { KIND_TO_PROTO } from './config/vocab.js';
+export { AUTH_HEADERS, PROTOCOLS, PROTO_ROUTES, UPSTREAM } from './config/protocols.js';
+export { API_KEY_PLACEHOLDER, BASE } from './config/placeholders.js';
+export { SDK, sdkDef, type SdkDef } from './config/sdk.js';
+export { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from './config/vocab.js';
 
 // ---- wire 层（真实请求与 codegen 共用）----
+export { authHeaders } from './wire/auth.js';
 export { buildBody } from './wire/body.js';
+export { endpointPath } from './wire/endpoint.js';
 export { buildMessages } from './wire/messages.js';
 export { parseToolCallArgs } from './wire/schema.js';
 export {

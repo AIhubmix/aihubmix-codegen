@@ -1,7 +1,7 @@
 /**
  * 媒体 Ruby renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -21,7 +21,7 @@ http.use_ssl = true
 
 request = Net::HTTP::Post.new(uri)
 request["Content-Type"] = "application/json"
-request["Authorization"] = "Bearer AIHUBMIX_API_KEY"
+request["Authorization"] = "Bearer ${API_KEY_PLACEHOLDER}"
 request.body = <<~'JSON'
 ${bodyStr}
 JSON
@@ -45,7 +45,7 @@ require "json"
 
 # 异步文生视频：Step 1 提交任务，Step 2 轮询直至完成
 BASE = "${BASE}"
-AUTH = "Bearer AIHUBMIX_API_KEY"
+AUTH = "Bearer ${API_KEY_PLACEHOLDER}"
 
 # Step 1：提交视频生成任务
 uri = URI("#{BASE}${ctx.submitPath}")

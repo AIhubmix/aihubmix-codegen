@@ -4,62 +4,78 @@
  * messages / gemini 走原生 net/http —— ruby-anthropic gem 不支持自定义 base URL，无法指向网关；
  * gemini 无官方 ruby SDK。
  */
-import type { CodeGenCtx } from '../types.js';
-import { BASE } from '../config/placeholders.js';
+import type { CodeGenCtx, CodeProto } from '../types.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { SDK, type SdkDef } from '../config/sdk.js';
 import { rubyEsc, rubyStr } from '../emit/escape.js';
 import { jsonLines, rubyParamLines } from '../emit/literal.js';
+import { authHeaders } from '../wire/auth.js';
 import { buildBody } from '../wire/body.js';
 import { endpointPath } from '../wire/endpoint.js';
 import { messagesLiteral, rubyImageNote } from './shared.js';
 
+/** net/http 的 header 写法：request["Name"] = "Value"。 */
+function rubyHeaders(proto: CodeProto): string {
+  return authHeaders(proto)
+    .map((h) => `request["${h.name}"] = "${h.value}"`)
+    .join('\n');
+}
+
+/** 取 SDK 记录；ruby 只有 chat / responses 两条（见文件头注释）。 */
+function def(proto: CodeProto): SdkDef {
+  const d = SDK.ruby?.[proto];
+  if (!d) throw new Error(`config/sdk.ts 缺 ruby × ${proto} 记录`);
+  return d;
+}
+
+/** ruby-openai 客户端构造（access_token + uri_base）。 */
+function rubyClient(d: SdkDef): string {
+  return `${d.imports.join('\n')}
+
+${d.clientVar} = ${d.clientCtor}(
+  access_token: "${API_KEY_PLACEHOLDER}",
+  uri_base: "${BASE}${d.baseSuffix}"
+)`;
+}
+
 export function rubyChat(ctx: CodeGenCtx): string {
   const { model, stream } = ctx;
+  const d = def('chat');
   const params = rubyParamLines(buildBody('chat', ctx), '    ');
-  const streamLine = stream
-    ? `\n    stream: proc { |chunk, _event| print chunk.dig("choices", 0, "delta", "content") },`
-    : '';
-  return `${rubyImageNote(ctx, 'chat')}require "openai"
+  // ruby-openai 的流式是「参数」形态（stream: proc {...}），不是尾部消费循环。
+  const streamLine = stream ? `\n    ${d.streamParam}` : '';
+  return `${rubyImageNote(ctx, 'chat')}${rubyClient(d)}
 
-client = OpenAI::Client.new(
-  access_token: "AIHUBMIX_API_KEY",
-  uri_base: "${BASE}"
-)
-
-response = client.chat(
+${d.resultVar} = ${d.call}(
   parameters: {
     model: ${rubyStr(model.id)},
     messages: ${messagesLiteral('chat', ctx, 'ruby', '    ')},
 ${params}${streamLine}
   }
 )
-${stream ? '' : '\nputs response.dig("choices", 0, "message", "content")'}`;
+${stream ? '' : `\n${d.read}`}`;
 }
 
 export function rubyResponses(ctx: CodeGenCtx): string {
   const { model, sys, stream } = ctx;
+  const d = def('responses');
   const params = rubyParamLines(buildBody('responses', ctx), '    ');
-  const streamLine = stream
-    ? `\n    stream: proc { |chunk, _event| print chunk.dig("delta") },`
-    : '';
-  return `${rubyImageNote(ctx, 'responses')}require "openai"
+  const streamLine = stream ? `\n    ${d.streamParam}` : '';
+  return `${rubyImageNote(ctx, 'responses')}${rubyClient(d)}
 
-client = OpenAI::Client.new(
-  access_token: "AIHUBMIX_API_KEY",
-  uri_base: "${BASE}"
-)
-
-response = client.responses.create(
+${d.resultVar} = ${d.call}(
   parameters: {
     model: ${rubyStr(model.id)},${sys ? `\n    instructions: "${rubyEsc(sys)}",` : ''}
     input: ${messagesLiteral('responses', ctx, 'ruby', '    ')},
 ${params}${streamLine}
   }
 )
-${stream ? '' : '\n# output[0] 可能是 reasoning，回复文本通常在最后一个 output 块\nputs response.dig("output", -1, "content", 0, "text")'}`;
+${stream ? '' : `\n${d.read}`}`;
 }
 
 export function rubyMessages(ctx: CodeGenCtx): string {
   const body = jsonLines(buildBody('messages', ctx), '');
+  const headers = rubyHeaders('messages');
   return `# ruby-anthropic gem 不支持自定义 base URL，故 messages 协议用原生 net/http 指向网关。
 require "net/http"
 require "uri"
@@ -70,8 +86,7 @@ http.use_ssl = true
 
 request = Net::HTTP::Post.new(uri)
 request["Content-Type"] = "application/json"
-request["x-api-key"] = "AIHUBMIX_API_KEY"
-request["anthropic-version"] = "2023-06-01"
+${headers}
 request.body = <<~'JSON'
 ${body}
 JSON
@@ -82,6 +97,7 @@ puts response.body`;
 
 export function rubyGemini(ctx: CodeGenCtx): string {
   const body = jsonLines(buildBody('gemini', ctx), '');
+  const headers = rubyHeaders('gemini');
   return `require "net/http"
 require "uri"
 
@@ -91,7 +107,7 @@ http.use_ssl = true
 
 request = Net::HTTP::Post.new(uri)
 request["Content-Type"] = "application/json"
-request["x-goog-api-key"] = "AIHUBMIX_API_KEY"
+${headers}
 request.body = <<~'JSON'
 ${body}
 JSON

@@ -5,9 +5,11 @@
  * ⚠️ 已知缺口：不在该表里的 object/array 参数在 go chat 单元格会静默丢失（另 6 语言正常）。
  */
 import type { CgMsg, CodeGenCtx, CodeProto } from '../types.js';
-import { BASE } from '../config/placeholders.js';
+import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { SDK } from '../config/sdk.js';
 import { esc, goRawSafe, num } from '../emit/escape.js';
 import { jsonLines } from '../emit/literal.js';
+import { authHeaders } from '../wire/auth.js';
 import { buildBody, inSchema, isEmptyContainer } from '../wire/body.js';
 import { endpointPath } from '../wire/endpoint.js';
 import { buildMessages } from '../wire/messages.js';
@@ -75,6 +77,8 @@ function goMessages(ctx: CodeGenCtx): string {
 
 export function goChat(ctx: CodeGenCtx): string {
   const { model, p } = ctx;
+  const d = SDK.go?.chat;
+  if (!d) throw new Error('config/sdk.ts 缺 go × chat 记录');
   const msgs = goMessages(ctx);
   // go-openai 对 o1/gpt-5 等新模型客户端侧拒绝 MaxTokens，要求 MaxCompletionTokens；按 schema 是否声明切换。
   const maxField = ctx.paramKeys?.includes('max_completion_tokens')
@@ -118,15 +122,15 @@ import (
 \t"context"
 \t"fmt"
 
-\topenai "github.com/sashabaranov/go-openai"
+\t${d.imports.join('\n\t')}
 )
 
 func main() {
-\tcfg := openai.DefaultConfig("AIHUBMIX_API_KEY")
-\tcfg.BaseURL = "${BASE}/v1"
-\tclient := openai.NewClientWithConfig(cfg)
+\tcfg := ${d.clientCtor}("${API_KEY_PLACEHOLDER}")
+\tcfg.BaseURL = "${BASE}${d.baseSuffix}"
+\t${d.clientVar} := openai.NewClientWithConfig(cfg)
 ${seedDecl}
-\tresp, err := client.CreateChatCompletion(
+\t${d.resultVar}, err := ${d.call}(
 \t\tcontext.Background(),
 \t\topenai.ChatCompletionRequest{
 \t\t\tModel: "${model.id}",
@@ -137,18 +141,15 @@ ${seedDecl}
 \tif err != nil {
 \t\tpanic(err)
 \t}
-\tfmt.Println(resp.Choices[0].Message.Content)
+\t${d.read}
 }`;
 }
 
 export function goRaw(proto: CodeProto, ctx: CodeGenCtx): string {
   const body = jsonLines(buildBody(proto, ctx), '\t\t');
-  const headers =
-    proto === 'messages'
-      ? `\treq.Header.Set("x-api-key", "AIHUBMIX_API_KEY")\n\treq.Header.Set("anthropic-version", "2023-06-01")`
-      : proto === 'gemini'
-        ? `\treq.Header.Set("x-goog-api-key", "AIHUBMIX_API_KEY")`
-        : `\treq.Header.Set("Authorization", "Bearer AIHUBMIX_API_KEY")`;
+  const headers = authHeaders(proto)
+    .map((h) => `\treq.Header.Set("${h.name}", "${h.value}")`)
+    .join('\n');
   return `package main
 
 import (
