@@ -15,10 +15,18 @@ export type CodeProto = 'chat' | 'messages' | 'responses' | 'gemini';
 /** 语言 id */
 export type CodeLang = 'python' | 'javascript' | 'go' | 'java' | 'csharp' | 'ruby' | 'curl';
 
-/** 语言列表项 */
+/** 语言列表项。UI 只用 id/label；其余字段供 verify harness 落盘与运行时探测。 */
 export interface LangDef {
   id: CodeLang;
   label: string;
+  /** 源文件扩展名（含点）。 */
+  ext: string;
+  /** 固定文件名（java 的 Main.java / csharp 的 Program.cs）；缺省则由 harness 按 ext 起名。 */
+  fileName?: string;
+  /** 运行时探测命令：真跑一次拿退出码，不用 `command -v`（会被 macOS 的 java stub 骗过）。 */
+  probe: { cmd: string; args: string[] } | null;
+  /** 跑通该语言全部协议示例所需的 SDK 安装命令；null = 标准库即可。 */
+  install: string | null;
 }
 
 /** 协议列表项 */

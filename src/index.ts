@@ -26,7 +26,7 @@ export type {
 } from './types.js';
 
 // ---- 配置词表 ----
-export { LANGS } from './config/languages.js';
+export { LANGS, langDef } from './config/languages.js';
 export { AUTH_HEADERS, PROTOCOLS, PROTO_ROUTES, UPSTREAM } from './config/protocols.js';
 export { API_KEY_PLACEHOLDER } from './config/placeholders.js';
 export { SDK, sdkDef, type SdkDef } from './config/sdk.js';

