@@ -8,9 +8,9 @@
 /**
  * API key 占位符 —— 唯一真源（原先字面量在各 renderer 里散了 ≈40 处）。
  *
- * ⚠️ 现存不一致（本步不改，因为要求零字节差异；记账留给后续）：文本协议的 curl 出的是
- * `Bearer AIHUBMIX_API_KEY`（字面量，粘到终端不会展开），媒体 curl 出的是 `$AIHUBMIX_API_KEY`
- * （shell 变量，会展开）。统一成后者需要改产物字节，得单独一步做。
+ * 两处 curl（文本协议与媒体）都出 `$AIHUBMIX_API_KEY`（shell 变量，粘进终端会展开），
+ * 不出字面量 —— curl 是唯一「复制即跑」的语言，出字面量等于要用户把真 key 打进 shell 历史。
+ * 其余六门语言各自决定怎么写（`os.environ` / `process.env` / 字面量），不强求统一。
  */
 export const API_KEY_PLACEHOLDER = 'AIHUBMIX_API_KEY';
 

@@ -311,9 +311,12 @@ async function runCombo(gen, proto, lang, rt) {
   const dir = await mkdtemp(join(tmpdir(), `vc-${proto}-${lang}-`));
   try {
     if (lang === 'curl') {
+      // curl 出的是 shell 变量 `$AIHUBMIX_API_KEY`（复制即跑），**不能走 withKey()**：
+      // 那会把 `$AIHUBMIX_API_KEY` 替成 `$sk-...`，bash 再把它当变量名展开成空串，
+      // 结果是整片 401 而原因看着像网关。设同名 env 让脚本自己展开，与 javascript 分支同理。
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('bash', [file], {}));
+      await writeFile(file, code);
+      return classify(await capture('bash', [file], { env: { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
     }
     if (lang === 'python') {
       const file = join(dir, srcName(def, proto));
