@@ -511,8 +511,19 @@ if (isMain) (async () => {
   if (!javaOk) console.log('  ⚠ JDK 未安装：java 组合将 skip');
   if (!dotnet.ok) console.log('  ⚠ dotnet SDK 未安装：csharp 组合将 skip');
 
+  // --only chat/go[,messages/python]：只跑点名的格子。修完一格之后回验时，没有它就得
+  // 为一格重打 28 次真实请求 —— 花钱、慢，而且噪音（缺 runtime、模型不属于该协议）会盖住
+  // 真正要看的那一格。不传就是全量，行为不变。
+  const only = (argVal('--only') || '').split(',').map((s) => s.trim()).filter(Boolean);
   const jobs = [];
-  for (const proto of PROTOS) for (const lang of LANGS) jobs.push({ proto, lang });
+  for (const proto of PROTOS) for (const lang of LANGS) {
+    if (only.length && !only.includes(`${proto}/${lang}`)) continue;
+    jobs.push({ proto, lang });
+  }
+  if (only.length && !jobs.length) {
+    console.error(`✗ --only 没匹配到任何组合。可选：${PROTOS.map((p) => `${p}/<lang>`).join(' ')}`);
+    process.exit(2);
+  }
   // 并发上限:21 组合(协议×语言)全并发在 2 核 runner 上真实编译+调用会互相拖慢→逼近超时→成片假红。
   // 限 4 并发,失败/异常隔离到单组合(runCombo 内已 try/catch,这里再兜 writeFile/mkdtemp 冒泡)。
   const results = await mapPool(jobs, 4, (j) =>
@@ -543,8 +554,12 @@ if (isMain) (async () => {
   // 防假绿:skip 在门禁层不能等同 pass。runtime 集体缺失/装失败会让大量组合 skip,
   // 若不设底,极端下"0/0 通过 21 跳过"仍 exit 0 → 网关收到"成功"却零验证放行。
   // 底线:核心语言(curl 恒可用 + python)必须至少各真跑过一次,且总通过数>0。
+  //
+  // --only 是**人工点名单格回验**,不是门禁跑法:点了 chat/go 就该只跑那一格,此时
+  // 「curl/python 没跑」是要求的结果而不是塌方。所以这条底线只在全量模式下生效
+  // ——CI 里没人传 --only,门禁强度不变。
   const CORE = ['curl', 'python'];
-  const coreRan = CORE.every((l) => results.some((r) => r.lang === l && r.ok !== null));
+  const coreRan = only.length || CORE.every((l) => results.some((r) => r.lang === l && r.ok !== null));
   if (passed === 0) {
     console.error('\n✗ 零组合真实通过(全 skip 或全失败)——不作为成功结论,exit 2。');
     process.exit(2);
