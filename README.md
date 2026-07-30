@@ -94,13 +94,15 @@ const { generateCode } = require('@aihubmix/codegen');
 
 TypeScript projects on `moduleResolution: node16 | nodenext` resolve `./dist/index.d.cts` for `require` and `./dist/index.d.ts` for `import`.
 
-## Capability injection layer (unstable)
+## Scope: wire vocabulary only
 
-`generateFromCapabilities()` takes a list of capability keys plus a caller-supplied `resolve(cap, proto)` and produces `{ code, body, notes, used, availability }`. The package never reads the model knowledge base itself — field names and verdicts are injected, which is what keeps it isomorphic.
+This package speaks two things and nothing else: what the gateway's HTTP body looks like (four protocols — a closed set that only moves when an upstream API changes), and how to write that body as code in seven languages.
 
-> **0.x, subject to change.** This layer currently speaks knowledge-base vocabulary (capability keys, verdicts, per-capability sample values). That vocabulary is an open set that grows independently of this package, so it is being moved out to a separate schema package; the interface here will change to take wire-vocabulary input only. Do not depend on its shape yet.
+It deliberately does **not** speak knowledge-base vocabulary — capability keys (`reasoning-effort`, `vision`), verdicts (`tested-effective`, `silent-degrade`), or the knowledge base's own protocol identifiers. That vocabulary is an open set that grows on its own schedule; if it lived here, adding one capability upstream would mean a release of this package and an upgrade in every consumer. It lives in **`@aihubmix/model-schema`**, which depends on this package and translates knowledge-base records into the wire-only `CodeGenCtx` below. The dependency is one-way: nothing here imports that package.
 
-The package ships **no UI**: no chips, no strikethrough styling, no syntax highlighting. Consumers map the structured result onto their own components.
+`tests/vocabulary-isolation.test.ts` enforces this by scanning `src/` for those literals, so it is a build-time fact rather than a convention.
+
+The package also ships **no UI**: no chips, no strikethrough styling, no syntax highlighting.
 
 ## Invariants
 
@@ -110,7 +112,8 @@ Enforced by tests in `tests/`, not by convention:
 2. **Single wire source** — every renderer's body comes from `buildBody()`; no bypass path.
 3. **Facts live once** — auth headers, `anthropic-version`, the four routes, the API-key placeholder, SDK package names and response accessors appear only in `src/config/**`. `tests/fact-localization.test.ts` fails if one leaks into `src/renderers/**` or `scripts/**`.
 4. **`CAP_GATED_WIRE_KEYS` is derived**, never hand-written twice.
-5. **SDK records are self-consistent** — an `Anthropic` client's response accessor may not contain `choices[`, and an OpenAI client's may not contain `content[0].text`.
+5. **Wire vocabulary only** — no capability key, verdict, or knowledge-base protocol id appears in `src/`. `tests/vocabulary-isolation.test.ts` fails if one is added back.
+6. **SDK records are self-consistent** — an `Anthropic` client's response accessor may not contain `choices[`, and an OpenAI client's may not contain `content[0].text`.
 
 ## Development
 

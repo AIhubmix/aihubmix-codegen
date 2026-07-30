@@ -27,28 +27,10 @@ export const ENDPOINT_TO_PROTO: Record<string, CodeProto> = {
   gemini_api: 'gemini',
 };
 
-/**
- * 代码协议 id → canon 协议 id。
- *
- * canon（AIHubMix 模型知识库）用带命名空间的全名标协议，包内用短 id。能力注入层的调用方
- * 要拿包给的 proto 去 canon 里查能力记录，两套 id 的换算就落在这里 —— 不然每个消费端
- * 各写一份 `chat → 'openai.chat_completions'` 的 map，改名时漏一个就静默查不到能力。
- *
- * ⚠️ 与 KIND_TO_PROTO / ENDPOINT_TO_PROTO 是**第三套**独立词表：那两套吃的是网关 schema 的
- * `endpoint.kind` 与模型库的 `mdl_info.endpoints`，这套吃的是 canon 投影的 `protocol` 字段。
- * 三个数据源三套命名是历史事实，合并会让任一方改名时静默漏协议。
- */
-export const PROTO_TO_CANON: Record<CodeProto, string> = {
-  chat: 'openai.chat_completions',
-  responses: 'openai.responses',
-  messages: 'anthropic.messages',
-  gemini: 'google.gemini',
-};
-
-/** canon 协议 id → 代码协议 id（PROTO_TO_CANON 的反表，自动导出，不手写第二份）。 */
-export const CANON_TO_PROTO: Record<string, CodeProto> = Object.fromEntries(
-  Object.entries(PROTO_TO_CANON).map(([proto, canon]) => [canon, proto as CodeProto]),
-) as Record<string, CodeProto>;
+// 曾经这里还有第三套词表 PROTO_TO_CANON / CANON_TO_PROTO（代码协议 id ↔ canon 协议 id）。
+// 它已搬去 @aihubmix/model-schema：`'openai.chat_completions'` 是 canon 的词，从不出现在
+// 发给网关的 body 里，canon 改名不该逼这个包发版。上面两套留在这儿是因为它们不含 canon 词，
+// 且各自有真实消费端（playground 吃 endpoint.kind、模型详情页吃 mdl_info.endpoints）。
 
 /** 解析 `mdl_info.endpoints`（逗号串或数组）→ 去重后的协议列表；无法识别的项直接丢弃。 */
 export function protosFromEndpoints(endpoints: string | string[] | null | undefined): CodeProto[] {
