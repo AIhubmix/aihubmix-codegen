@@ -69,6 +69,11 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # 构建产物的 CJS 互操作只有裸 node 验得到:vitest 跑的是 src/ 的 TS 源码。
+      # 消费方 inferera-web 的 prerender-models.js 是 CommonJS,这条坏了它构建期直出正文就会炸。
+      - name: Node smoke (require dist/index.cjs)
+        run: pnpm smoke
+
       # python 示例 import openai/anthropic;runner 裸 python 没有(本地开发机装过所以跑不出)。
       - name: Install Python SDKs
         run: pip install --quiet openai anthropic

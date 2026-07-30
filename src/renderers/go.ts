@@ -36,11 +36,46 @@ function goLiteral(value: unknown, kind: 'map_int' | 'map_str' | 'slice_str'): s
   return `[]string{${arr.map((v) => gs(v)).join(', ')}}`;
 }
 
-/** go-openai ChatCompletionRequest 的强类型结构化字段（值来自 ctx.objects）。 */
-const GO_OBJ_FIELDS: { key: string; field: string; kind: 'map_int' | 'map_str' | 'slice_str' }[] = [
+/**
+ * go-openai ChatCompletionRequest 的强类型结构化字段（值来自 ctx.objects）。
+ *
+ * 导出仅供 tests/extensibility.test.ts 用：那条测试拿 buildBody 的实际产物比对本表，
+ * 新增的 object/array 参数没映射就红，把「go chat 静默丢字段」变成显式失败。
+ * 不进 src/index.ts 的公共出口 —— 这是 go renderer 的内部细节，不是包的对外契约。
+ */
+export const GO_OBJ_FIELDS: { key: string; field: string; kind: 'map_int' | 'map_str' | 'slice_str' }[] = [
   { key: 'logit_bias', field: 'LogitBias', kind: 'map_int' },
   { key: 'stop', field: 'Stop', kind: 'slice_str' },
   { key: 'metadata', field: 'Metadata', kind: 'map_str' },
+];
+
+/**
+ * goChat 能渲染的**全部** body 键。
+ *
+ * 另外 6 门语言是「body 里有什么就出什么」（原生 REST 直接 jsonLines(buildBody)，
+ * SDK 语言逐键渲染），只有 go chat 例外：go-openai 的 ChatCompletionRequest 是强类型
+ * struct，没有 map 兜底，所以每个键都得在本文件手工映射一次。没映射的键 —— 不管是数值、
+ * 枚举还是 object —— 都会在 go chat 单元格**静默消失**。
+ *
+ * 本表连同 tests/extensibility.test.ts 的覆盖测试把这个「静默」变成「显式失败」：
+ * buildBody 产出的非结构性键只要不在本表里，测试就红。加参数时要么在 goChat 里补一段
+ * 渲染并把键加进来，要么确认它不该出现在 chat body 里。
+ * 与 GO_OBJ_FIELDS 一样，导出仅供测试，不进 src/index.ts 的对外契约。
+ */
+export const GO_CHAT_KEYS: readonly string[] = [
+  'model',
+  'messages',
+  'max_tokens',
+  'max_completion_tokens',
+  'temperature',
+  'top_p',
+  'reasoning_effort',
+  'seed',
+  'top_logprobs',
+  'logprobs',
+  'prediction', // 嵌套 typed struct，只渲染成一行提示注释，不展开
+  'stream', // goChat 是非流式骨架，body 里的 stream:false 不需要落到 struct
+  ...GO_OBJ_FIELDS.map((f) => f.key),
 ];
 
 /** go-openai ChatCompletionMessage 列表：复用 buildMessages（chat）→ 完整多轮历史。

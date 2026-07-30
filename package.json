@@ -30,6 +30,7 @@
     "prepare": "tsup",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "smoke": "tsup && node scripts/smoke-node.cjs",
     "snapshot": "node scripts/snapshot.mjs",
     "snapshot:before": "node scripts/snapshot.mjs --src ~/code/playground/src/lib/codegen.ts --alias ~/code/playground/src --out .snapshots/before",
     "snapshot:after": "node scripts/snapshot.mjs --src src/index.ts --out .snapshots/after",
@@ -38,6 +39,7 @@
     "test:codegen-escaping": "node scripts/test-codegen-escaping.mjs"
   },
   "devDependencies": {
+    "@types/node": "^22.20.1",
     "esbuild": "^0.24.0",
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
