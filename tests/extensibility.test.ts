@@ -5,10 +5,10 @@
  * 下面用一个**当前代码里根本不存在的新参数名**来验这条链路，而不是挑一个已被特判的老参数
  * （那样测的是特判，不是通用通道）。
  *
- * 本文件同时钉住两个跑测试时才发现的**现存缺口**，两条都按当前真实行为写断言、注释里写清
- * 「修好之后期望值该改成什么」—— 目的是把静默行为变成显式基线，不是替它背书：
- *   ① emitEnums 没有 inSchema 门控（另两条通道有）；
- *   ② go chat 会丢掉任何没在 goChat 里手工映射过的键，不只是 object 参数。
+ * 本文件还钉住一个**现存缺口**，按当前真实行为写断言、注释里写清「修好之后期望值该改成
+ * 什么」—— 目的是把静默行为变成显式基线，不是替它背书：go chat 会丢掉任何没在 goChat 里
+ * 手工映射过的键，不只是 object 参数。
+ * （曾经的另一个缺口「emitEnums 没有 inSchema 门控」已修，对应断言已翻面。）
  */
 import { describe, expect, it } from 'vitest';
 import { LANGS } from '../src/config/languages.js';
@@ -52,14 +52,32 @@ describe('加参数：schema 声明即进 body', () => {
     expect(NEW_OBJ in b).toBe(false);
   });
 
-  it('【已知缺口】枚举参数没有 schema 门控：未声明也会发出去', () => {
-    // emitExtraNumbers / emitObjects 都调 inSchema()，emitEnums 没调 —— 只判「非空且 ≠ 默认」。
-    // 实际影响：playground 切协议时 enums 状态若跨协议留存，chat 专有的枚举（如 service_tier）
-    // 会跟着进 messages 的 body，被网关拒。修法是给 emitEnums 补一行 inSchema 门控，
-    // 但那是行为变更，要单独一个提交 + 基线快照零差异验证，不混在测试提交里。
-    // 修好之后把下面这条改成 toBe(false)，并删掉本条测试标题里的「已知缺口」。
+  it('枚举参数同样受 schema 门控：未声明就不发', () => {
+    // 三条通用通道现在一致都调 inSchema()。emitEnums 曾经漏了这一条，
+    // 表现是「面板不显示、body 里却有」—— 破坏「面板显示什么 == 请求发什么 == 示例出什么」。
     const b = buildBody('chat', ctxWith({ enums: { [NEW_ENUM]: 'turbo' } }));
-    expect(NEW_ENUM in b).toBe(true);
+    expect(NEW_ENUM in b).toBe(false);
+  });
+
+  it('切协议后残留的枚举不会跟着进新协议的 body（这条门控真正要挡的场景）', () => {
+    // 真实路径：playground 在 chat 下设了 service_tier，切到 messages。schema 换了、
+    // paramKeys 换了，但 enums 这份状态还在。没有门控时它会跟着进 messages 的 body，
+    // 网关按未知字段拒 —— 而用户在面板上根本看不到这个参数，无从排查。
+    const chatOnlyEnum = 'service_tier';
+    const inChat = ctxWith({ enums: { [chatOnlyEnum]: 'priority' } }); // fixture 的 PARAM_KEYS 含它
+    expect(buildBody('chat', inChat)[chatOnlyEnum]).toBe('priority');
+
+    // 切到 messages：schema 换成不含 service_tier 的那份，enums 里的残留值原样留着。
+    const messagesKeys = PARAM_KEYS.filter((k) => k !== chatOnlyEnum);
+    const switched = ctxWith({ paramKeys: messagesKeys, enums: { [chatOnlyEnum]: 'priority' } });
+    const b = buildBody('messages', switched);
+    expect(chatOnlyEnum in b).toBe(false);
+    expect(JSON.stringify(b).includes('priority')).toBe(false);
+  });
+
+  it('省略 paramKeys 时不门控（向后兼容：老调用方没传就别把它的参数吃掉）', () => {
+    const { paramKeys: _drop, ...noKeys } = ctxWith({ enums: { [NEW_ENUM]: 'turbo' } });
+    expect(buildBody('chat', noKeys)[NEW_ENUM]).toBe('turbo');
   });
 
   it('新参数出现在各语言产物里（go 的强类型缺口另见下一组）', () => {

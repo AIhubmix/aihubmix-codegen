@@ -15,12 +15,14 @@ import { buildMessages } from './messages.js';
 // 门控小工具住 gate.ts（body 与 capabilities 都要用，分文件避免成环），这里转出保持既有 import 路径。
 export { inSchema, isEmptyContainer };
 
-/** 把配置的 enum/字符串参数写进 body（取值非空且 ≠ schema 默认才发）。 */
+/** 把配置的 enum/字符串参数写进 body（schema 声明、取值非空且 ≠ schema 默认才发）。 */
 function emitEnums(b: Record<string, unknown>, ctx: CodeGenCtx): void {
   const { enums, enumDefaults } = ctx;
   if (!enums) return;
   for (const [k, v] of Object.entries(enums)) {
+    if (CAP_GATED_WIRE_KEYS.has(k)) continue; // 能力接管的字段，由对应能力门控块下发
     if (v === undefined || v === null || v === '') continue;
+    if (!inSchema(ctx, k)) continue; // 当前协议 schema 未声明的键不发（与 emitObjects/emitExtraNumbers 一致）
     if (enumDefaults && enumDefaults[k] === v) continue; // 等于默认不发
     b[k] = v;
   }
