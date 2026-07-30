@@ -41,7 +41,9 @@ assert.strictEqual(cells, 28, `单元格数应为 4 协议 × 7 语言 = 28，�
 
 // 线上 model.constant.js:308-325 那个 bug 的回归：Anthropic 客户端不得读 choices[]
 const py = g.generateCode('messages', 'python', ctx);
-assert.ok(py.includes('message.content[0].text'), 'messages/python 取值行不对');
+assert.ok(py.includes('message.content'), 'messages/python 取值行不对');
+// content[0] 在开思考的模型上是 thinking 块，必须按类型挑
+assert.ok(!py.includes('content[0]'), 'messages/python 又按下标取块了');
 assert.ok(!py.includes('choices['), 'messages/python 混进了 OpenAI 的取值写法');
 
 assert.deepStrictEqual(g.protosFromEndpoints('chat_completions,claude_api,responses'), [
