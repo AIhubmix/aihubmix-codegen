@@ -28,7 +28,7 @@ export type {
 // ---- 配置词表 ----
 export { LANGS } from './config/languages.js';
 export { AUTH_HEADERS, PROTOCOLS, PROTO_ROUTES, UPSTREAM } from './config/protocols.js';
-export { API_KEY_PLACEHOLDER, BASE } from './config/placeholders.js';
+export { API_KEY_PLACEHOLDER } from './config/placeholders.js';
 export { SDK, sdkDef, type SdkDef } from './config/sdk.js';
 export { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from './config/vocab.js';
 

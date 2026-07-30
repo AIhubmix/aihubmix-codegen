@@ -1,14 +1,14 @@
 /**
  * 媒体 Python renderer：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { pyLiteral } from '../../emit/literal.js';
 import { splitMultipart, type MediaCtx } from '../../wire/media.js';
 
 // ---- 图：Python ----
 export function mediaImagePy(ctx: MediaCtx): string {
-  const url = `${BASE}${ctx.submitPath}`;
+  const url = `${ctx.baseUrl}${ctx.submitPath}`;
   const tail = `
 data = response.json()  # { id, status: "completed", output: [...], error }
 # Each output item has b64_json or content_url.
@@ -77,7 +77,7 @@ export function mediaVideoPy(ctx: MediaCtx): string {
 import requests
 
 # Text-to-video (async): submit a job, then poll until it finishes
-BASE = "${BASE}"
+BASE = "${ctx.baseUrl}"
 headers = {
     "Authorization": "Bearer ${API_KEY_PLACEHOLDER}",
     "Content-Type": "application/json",

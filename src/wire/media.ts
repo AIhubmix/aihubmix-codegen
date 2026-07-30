@@ -9,6 +9,8 @@ import { placeholderFor, refImagesToWireFields } from './multimodal.js';
 
 /** 媒体请求上下文（endpoint 归一 + 源图折叠），贯穿各语言生成函数。 */
 export interface MediaCtx {
+  /** 网关根地址（从 MediaCodeGenOpts 透传，各语言 renderer 拼 URL 用）。 */
+  baseUrl: string;
   submitPath: string;
   pollPath: string;
   envelope: string; // 'none' | 'input'
@@ -48,7 +50,7 @@ export function buildMediaCtx(
   prompt: string,
   params: Record<string, unknown>,
 ): MediaCtx {
-  const { modality, modelId, endpoint, refImages } = opts;
+  const { baseUrl, modality, modelId, endpoint, refImages } = opts;
   const submitPath = endpoint?.path || (modality === 'image' ? IMG_PATH_DEFAULT : VID_PATH_DEFAULT);
   const pollPath = endpoint?.pollPath || (modality === 'video' ? `${VID_PATH_DEFAULT}/{id}` : '');
   const envelope = endpoint?.envelope ?? 'none';
@@ -77,7 +79,7 @@ export function buildMediaCtx(
       .flatMap(([k, parts]) => parts.map(() => ({ key: k, value: '', isFile: true }))),
   ];
 
-  return { submitPath, pollPath, envelope, encoding, bodyObj, multipartFields, hasRef };
+  return { baseUrl, submitPath, pollPath, envelope, encoding, bodyObj, multipartFields, hasRef };
 }
 
 /** multipart 字段拆成 data（标量）+ files（源图）两组，供 py/ts/curl 渲染。 */

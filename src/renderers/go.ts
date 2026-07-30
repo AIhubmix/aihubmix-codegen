@@ -5,7 +5,7 @@
  * ⚠️ 已知缺口：不在该表里的 object/array 参数在 go chat 单元格会静默丢失（另 6 语言正常）。
  */
 import type { CgMsg, CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
 import { SDK } from '../config/sdk.js';
 import { esc, goRawSafe, num } from '../emit/escape.js';
 import { jsonLines } from '../emit/literal.js';
@@ -127,7 +127,7 @@ import (
 
 func main() {
 \tcfg := ${d.clientCtor}("${API_KEY_PLACEHOLDER}")
-\tcfg.BaseURL = "${BASE}${d.baseSuffix}"
+\tcfg.BaseURL = "${ctx.baseUrl}${d.baseSuffix}"
 \t${d.clientVar} := openai.NewClientWithConfig(cfg)
 ${seedDecl}
 \t${d.resultVar}, err := ${d.call}(
@@ -163,7 +163,7 @@ func main() {
 \tpayload := []byte(\`
 ${goRawSafe(body)}
 \t\`)
-\treq, _ := http.NewRequest("POST", "${BASE}${endpointPath(proto, ctx)}", bytes.NewBuffer(payload))
+\treq, _ := http.NewRequest("POST", "${ctx.baseUrl}${endpointPath(proto, ctx)}", bytes.NewBuffer(payload))
 \treq.Header.Set("Content-Type", "application/json")
 ${headers}
 

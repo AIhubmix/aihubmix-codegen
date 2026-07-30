@@ -5,7 +5,7 @@
  * gemini 无官方 ruby SDK。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { rubyEsc, rubyStr } from '../emit/escape.js';
 import { jsonLines, rubyParamLines } from '../emit/literal.js';
@@ -29,12 +29,12 @@ function def(proto: CodeProto): SdkDef {
 }
 
 /** ruby-openai 客户端构造（access_token + uri_base）。 */
-function rubyClient(d: SdkDef): string {
+function rubyClient(d: SdkDef, baseUrl: string): string {
   return `${d.imports.join('\n')}
 
 ${d.clientVar} = ${d.clientCtor}(
   access_token: "${API_KEY_PLACEHOLDER}",
-  uri_base: "${BASE}${d.baseSuffix}"
+  uri_base: "${baseUrl}${d.baseSuffix}"
 )`;
 }
 
@@ -44,7 +44,7 @@ export function rubyChat(ctx: CodeGenCtx): string {
   const params = rubyParamLines(buildBody('chat', ctx), '    ');
   // ruby-openai 的流式是「参数」形态（stream: proc {...}），不是尾部消费循环。
   const streamLine = stream ? `\n    ${d.streamParam}` : '';
-  return `${rubyImageNote(ctx, 'chat')}${rubyClient(d)}
+  return `${rubyImageNote(ctx, 'chat')}${rubyClient(d, ctx.baseUrl)}
 
 ${d.resultVar} = ${d.call}(
   parameters: {
@@ -61,7 +61,7 @@ export function rubyResponses(ctx: CodeGenCtx): string {
   const d = def('responses');
   const params = rubyParamLines(buildBody('responses', ctx), '    ');
   const streamLine = stream ? `\n    ${d.streamParam}` : '';
-  return `${rubyImageNote(ctx, 'responses')}${rubyClient(d)}
+  return `${rubyImageNote(ctx, 'responses')}${rubyClient(d, ctx.baseUrl)}
 
 ${d.resultVar} = ${d.call}(
   parameters: {
@@ -80,7 +80,7 @@ export function rubyMessages(ctx: CodeGenCtx): string {
 require "net/http"
 require "uri"
 
-uri = URI("${BASE}${endpointPath('messages', ctx)}")
+uri = URI("${ctx.baseUrl}${endpointPath('messages', ctx)}")
 http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = true
 
@@ -101,7 +101,7 @@ export function rubyGemini(ctx: CodeGenCtx): string {
   return `require "net/http"
 require "uri"
 
-uri = URI("${BASE}${endpointPath('gemini', ctx)}")
+uri = URI("${ctx.baseUrl}${endpointPath('gemini', ctx)}")
 http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = true
 

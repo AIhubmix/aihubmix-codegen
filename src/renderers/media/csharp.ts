@@ -1,7 +1,7 @@
 /**
  * 媒体 C# renderer（HttpClient）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -23,7 +23,7 @@ ${bodyStr}
 """;
 
 var content = new StringContent(json, Encoding.UTF8, "application/json");
-var response = await client.PostAsync("${BASE}${ctx.submitPath}", content);
+var response = await client.PostAsync("${ctx.baseUrl}${ctx.submitPath}", content);
 var result = await response.Content.ReadAsStringAsync();
 
 Console.WriteLine(result);`;
@@ -40,7 +40,7 @@ using System.Text.Json;
 // 异步文生视频：Step 1 提交，Step 2 轮询
 var client = new HttpClient();
 client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
-var baseUrl = "${BASE}";
+var baseUrl = "${ctx.baseUrl}";
 
 // Step 1：提交视频生成任务
 var json = """

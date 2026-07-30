@@ -5,7 +5,7 @@
  * 「python 怎么把它写成一行」。骨架留在代码里（见三档划分的反向边界）。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { esc } from '../emit/escape.js';
 import { pyLiteral, sdkParamLines } from '../emit/literal.js';
@@ -21,12 +21,12 @@ function def(proto: CodeProto): SdkDef {
 }
 
 /** OpenAI / Anthropic 风格的 python 客户端构造（同为 api_key + base_url 关键字参数）。 */
-function pyClient(d: SdkDef): string {
+function pyClient(d: SdkDef, baseUrl: string): string {
   return `${d.imports.join('\n')}
 
 ${d.clientVar} = ${d.clientCtor}(
     api_key="${API_KEY_PLACEHOLDER}",
-    base_url="${BASE}${d.baseSuffix}",
+    base_url="${baseUrl}${d.baseSuffix}",
 )`;
 }
 
@@ -39,7 +39,7 @@ export function pyChat(ctx: CodeGenCtx): string {
   const { model, stream } = ctx;
   const d = def('chat');
   const params = sdkParamLines(buildBody('chat', ctx), 'python', 'chat', '    ');
-  return `${imageNote(ctx, 'python', 'chat')}${pyClient(d)}
+  return `${imageNote(ctx, 'python', 'chat')}${pyClient(d, ctx.baseUrl)}
 
 ${d.resultVar} = ${d.call}(
     model="${model.id}",
@@ -60,7 +60,7 @@ export function pyMessages(ctx: CodeGenCtx): string {
       ? `\n    system=${pyLiteral([{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }], '    ')},`
       : `\n    system="${esc(sys)}",`
     : '';
-  return `${imageNote(ctx, 'python', 'messages')}${pyClient(d)}
+  return `${imageNote(ctx, 'python', 'messages')}${pyClient(d, ctx.baseUrl)}
 
 ${d.resultVar} = ${d.call}(
     model="${model.id}",${systemPy}
@@ -75,7 +75,7 @@ export function pyResponses(ctx: CodeGenCtx): string {
   const { model, sys, stream } = ctx;
   const d = def('responses');
   const params = sdkParamLines(buildBody('responses', ctx), 'python', 'responses', '    ');
-  return `${imageNote(ctx, 'python', 'responses')}${pyClient(d)}
+  return `${imageNote(ctx, 'python', 'responses')}${pyClient(d, ctx.baseUrl)}
 
 ${d.resultVar} = ${d.call}(
     model="${model.id}",${sys ? `\n    instructions="${esc(sys)}",` : ''}
@@ -95,7 +95,7 @@ export function pyGemini(ctx: CodeGenCtx): string {
 
 ${d.clientVar} = ${d.clientCtor}(
     api_key="${API_KEY_PLACEHOLDER}",
-    http_options={"base_url": "${BASE}${d.baseSuffix}"},
+    http_options={"base_url": "${ctx.baseUrl}${d.baseSuffix}"},
 )
 
 ${d.resultVar} = ${d.call}(

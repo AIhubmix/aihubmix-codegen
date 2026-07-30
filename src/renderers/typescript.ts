@@ -4,7 +4,7 @@
  * SDK 事实（包名 / 客户端 / 调用 / 取值）全部来自 config/sdk.ts，本文件只管 js 的写法。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER, BASE } from '../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { esc } from '../emit/escape.js';
 import { jsLiteral, sdkParamLines } from '../emit/literal.js';
@@ -19,12 +19,12 @@ function def(proto: CodeProto): SdkDef {
 }
 
 /** OpenAI / Anthropic 风格的 js 客户端构造（同为 apiKey + baseURL 选项）。 */
-function tsClient(d: SdkDef): string {
+function tsClient(d: SdkDef, baseUrl: string): string {
   return `${d.imports.join('\n')}
 
 const ${d.clientVar} = ${d.clientCtor}({
   apiKey: process.env.${API_KEY_PLACEHOLDER},
-  baseURL: "${BASE}${d.baseSuffix}",
+  baseURL: "${baseUrl}${d.baseSuffix}",
 });`;
 }
 
@@ -36,7 +36,7 @@ export function tsChat(ctx: CodeGenCtx): string {
   const { model, stream } = ctx;
   const d = def('chat');
   const params = sdkParamLines(buildBody('chat', ctx), 'js', 'chat', '  ');
-  return `${imageNote(ctx, 'js', 'chat')}${tsClient(d)}
+  return `${imageNote(ctx, 'js', 'chat')}${tsClient(d, ctx.baseUrl)}
 
 const ${d.resultVar} = await ${d.call}({
   model: "${model.id}",
@@ -57,7 +57,7 @@ export function tsMessages(ctx: CodeGenCtx): string {
       ? `\n  system: ${jsLiteral([{ type: 'text', text: sys, cache_control: { type: 'ephemeral' } }], '  ')},`
       : `\n  system: "${esc(sys)}",`
     : '';
-  return `${imageNote(ctx, 'js', 'messages')}${tsClient(d)}
+  return `${imageNote(ctx, 'js', 'messages')}${tsClient(d, ctx.baseUrl)}
 
 const ${d.resultVar} = await ${d.call}({
   model: "${model.id}",${systemTs}
@@ -72,7 +72,7 @@ export function tsResponses(ctx: CodeGenCtx): string {
   const { model, sys, stream } = ctx;
   const d = def('responses');
   const params = sdkParamLines(buildBody('responses', ctx), 'js', 'responses', '  ');
-  return `${imageNote(ctx, 'js', 'responses')}${tsClient(d)}
+  return `${imageNote(ctx, 'js', 'responses')}${tsClient(d, ctx.baseUrl)}
 
 const ${d.resultVar} = await ${d.call}({
   model: "${model.id}",${sys ? `\n  instructions: "${esc(sys)}",` : ''}
@@ -92,7 +92,7 @@ export function tsGemini(ctx: CodeGenCtx): string {
 
 const ${d.clientVar} = ${d.clientCtor}({
   apiKey: "${API_KEY_PLACEHOLDER}",
-  httpOptions: { baseUrl: "${BASE}${d.baseSuffix}" },
+  httpOptions: { baseUrl: "${ctx.baseUrl}${d.baseSuffix}" },
 });
 
 const ${d.resultVar} = await ${d.call}({

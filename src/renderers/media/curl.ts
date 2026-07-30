@@ -1,7 +1,7 @@
 /**
  * 媒体 cURL renderer：图（同步单段 / multipart）/ 视频（提交 + 轮询 + 下载三段）。
  */
-import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { shellSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -9,7 +9,7 @@ import { splitMultipart, type MediaCtx } from '../../wire/media.js';
 
 // ---- 图：curl ----
 export function mediaImageCurl(ctx: MediaCtx): string {
-  const url = `${BASE}${ctx.submitPath}`;
+  const url = `${ctx.baseUrl}${ctx.submitPath}`;
   const download = `
 # Download a content_url (same Bearer key required; expires in ~30 minutes):
 # curl -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" -o image.png "<content_url>"`;
@@ -43,7 +43,7 @@ export function mediaVideoCurl(ctx: MediaCtx): string {
   return `# Text-to-video (async): Step 1 submit the job, Step 2 poll, Step 3 download
 
 # Step 1: submit the video job (returns { "id": "<video_id>", "status": "pending", ... })
-curl ${BASE}${ctx.submitPath} \\
+curl ${ctx.baseUrl}${ctx.submitPath} \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}" \\
   -d '${shellSafe(bodyStr)}'
@@ -51,7 +51,7 @@ curl ${BASE}${ctx.submitPath} \\
 # Step 2: poll the job status (replace <video_id> with the id from step 1)
 # status: pending → in_progress → completed | failed | cancelled
 # when completed, the result is in output[0].content_url
-curl ${BASE}${pollPath} \\
+curl ${ctx.baseUrl}${pollPath} \\
   -H "Authorization: Bearer $${API_KEY_PLACEHOLDER}"
 
 # Step 3: download the artifact (same Bearer key required; expires in ~30 minutes)

@@ -109,6 +109,17 @@ export interface CgMsg {
 
 /** generateCode 的入参上下文 */
 export interface CodeGenCtx {
+  /**
+   * 网关根地址，不带尾斜杠（如 `https://aihubmix.com` / `https://api.inferera.com`）。
+   *
+   * **必填是故意的**：inferera-web 是双域构建，写死在包里会让 inferera 域的详情页生成
+   * 指向 aihubmix.com 的代码；verify 脚本原先靠 `code.replaceAll(...)` 后处理换域，
+   * 意味着「被验证的字节 ≠ 用户拿到的字节」。必填让所有调用点编译报错，强制显式传。
+   *
+   * 也**不提供 setBaseUrl() 这类模块级 setter** —— 消费端后续按 Host 头运行时分叉双域，
+   * 同进程并发服务两个域，模块级可变状态必然串。
+   */
+  baseUrl: string;
   model: { id: string };
   /** system prompt（空串视为无） */
   sys: string;
@@ -156,6 +167,8 @@ export interface CodeGenCtx {
 
 /** generateMediaCode 的入参 */
 export interface MediaCodeGenOpts {
+  /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
+  baseUrl: string;
   /** 媒体模态：图 or 视频 */
   modality: 'image' | 'video';
   /** 模型 ID */

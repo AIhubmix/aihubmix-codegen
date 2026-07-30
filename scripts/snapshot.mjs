@@ -34,8 +34,8 @@ const SRC = resolve(expand(argVal('--src', 'src/index.ts')));
 const ALIAS = argVal('--alias') ? resolve(expand(argVal('--alias'))) : null;
 const OUT = resolve(expand(argVal('--out', '.snapshots/out')));
 
-// codegen 内部硬编码的 base;抽包后走 ctx.baseUrl。快照里统一归一化成这个占位,
-// 好让「解 BASE 硬编码」那一步的前后 diff 只反映真实的结构变化,而不是域名换了。
+// base 归一化：早期 codegen 内部写死 https://aihubmix.com,现在由 ctx.baseUrl 注入。
+// 快照统一归一成占位,好让基线（搬家前）与现在可比 —— diff 只反映真实结构变化,不是域名换了。
 const BASE_TOKEN = '__BASE__';
 const KNOWN_BASES = ['https://aihubmix.com'];
 
@@ -102,6 +102,7 @@ const baseP = {
 };
 
 const ctxBase = {
+  baseUrl: KNOWN_BASES[0],
   model: { id: MODEL },
   sys: 'You are a concise assistant.',
   user: PROMPT,
@@ -241,7 +242,7 @@ async function main() {
       for (const lang of LANGS.map((x) => x.id)) {
         let body;
         try {
-          body = normalize(generateMediaCode({ ...opts, lang }));
+          body = normalize(generateMediaCode({ baseUrl: KNOWN_BASES[0], ...opts, lang }));
         } catch (e) {
           body = `__THREW__ ${e && e.message}`;
         }

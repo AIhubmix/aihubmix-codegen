@@ -1,7 +1,7 @@
 /**
  * 媒体 Ruby renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -15,7 +15,7 @@ require "uri"
 require "json"
 
 ${note}# 同步文生图：POST ${ctx.submitPath}（阻塞返回统一任务对象）
-uri = URI("${BASE}${ctx.submitPath}")
+uri = URI("${ctx.baseUrl}${ctx.submitPath}")
 http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = true
 
@@ -44,7 +44,7 @@ require "uri"
 require "json"
 
 # 异步文生视频：Step 1 提交任务，Step 2 轮询直至完成
-BASE = "${BASE}"
+BASE = "${ctx.baseUrl}"
 AUTH = "Bearer ${API_KEY_PLACEHOLDER}"
 
 # Step 1：提交视频生成任务

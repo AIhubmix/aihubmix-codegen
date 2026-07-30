@@ -1,11 +1,9 @@
 /**
- * 占位文案与默认 base。
+ * 占位文案。
  *
- * BASE 是过渡态：下一步（ctx.baseUrl 必填）会把它从这里删掉，改由调用方注入 ——
- * inferera-web 是双域构建（aihubmix.com / inferera.com + api.inferera.com），
- * 写死在包里会让 inferera 域的详情页生成指向 aihubmix.com 的代码。
+ * 这里**没有默认 base URL**：base 由调用方经 `ctx.baseUrl` 注入（必填），理由见
+ * types.ts 的 CodeGenCtx.baseUrl 注释 —— 双域构建 + verify 脚本后处理换域两笔账。
  */
-export const BASE = 'https://aihubmix.com';
 
 /**
  * API key 占位符 —— 唯一真源（原先字面量在各 renderer 里散了 ≈40 处）。

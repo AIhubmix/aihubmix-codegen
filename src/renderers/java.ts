@@ -2,7 +2,6 @@
  * Java renderer（java.net.http）：一个 javaRaw 吃 4 协议。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { BASE } from '../config/placeholders.js';
 import { javaTextBlockSafe } from '../emit/escape.js';
 import { authHeaders } from '../wire/auth.js';
 import { buildBody } from '../wire/body.js';
@@ -25,7 +24,7 @@ ${body}
         """;
 
         HttpRequest request = HttpRequest.newBuilder()
-        .uri(URI.create("${BASE}${endpointPath(proto, ctx)}"))
+        .uri(URI.create("${ctx.baseUrl}${endpointPath(proto, ctx)}"))
         .header("Content-Type", "application/json")
 ${headers}
         .POST(HttpRequest.BodyPublishers.ofString(body))

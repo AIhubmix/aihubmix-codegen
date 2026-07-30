@@ -1,14 +1,14 @@
 /**
  * 媒体 TypeScript / JavaScript renderer：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER, BASE } from '../../config/placeholders.js';
+import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { blockLines } from '../../emit/literal.js';
 import { splitMultipart, type MediaCtx } from '../../wire/media.js';
 
 // ---- 图：TypeScript / JavaScript ----
 export function mediaImageTs(ctx: MediaCtx): string {
-  const url = `${BASE}${ctx.submitPath}`;
+  const url = `${ctx.baseUrl}${ctx.submitPath}`;
   const tail = `if (!response.ok) throw new Error(\`HTTP \${response.status}\`);
 const data = await response.json(); // { id, status: "completed", output: [...], error }
 
@@ -57,7 +57,7 @@ export function mediaVideoTs(ctx: MediaCtx): string {
   const bodyStr = blockLines(ctx.bodyObj, '    ');
   const pollPath = (ctx.pollPath || `${VID_PATH_DEFAULT}/{id}`).replace(/\{(id|video_id|task_id)\}/g, '${videoId}');
   return `// Text-to-video (async): submit a job, then poll until it finishes
-const BASE = "${BASE}";
+const BASE = "${ctx.baseUrl}";
 const headers = {
   Authorization: "Bearer " + process.env.${API_KEY_PLACEHOLDER},
   "Content-Type": "application/json",
