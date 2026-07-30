@@ -30,7 +30,23 @@ export { LANGS, langDef } from './config/languages.js';
 export { AUTH_HEADERS, PROTOCOLS, PROTO_ROUTES, UPSTREAM } from './config/protocols.js';
 export { API_KEY_PLACEHOLDER } from './config/placeholders.js';
 export { SDK, sdkDef, type SdkDef } from './config/sdk.js';
-export { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from './config/vocab.js';
+export {
+  CANON_TO_PROTO,
+  ENDPOINT_TO_PROTO,
+  KIND_TO_PROTO,
+  PROTO_TO_CANON,
+  protosFromEndpoints,
+} from './config/vocab.js';
+export { DEFAULT_SAMPLES, type CapabilitySamples } from './config/samples.js';
+export {
+  NO_ENTRY_POLICY,
+  UNKNOWN_VERDICT_POLICY,
+  VERDICT_POLICY,
+  verdictPolicy,
+  type CapLevel,
+  type Verdict,
+  type VerdictPolicy,
+} from './config/verdicts.js';
 
 // ---- wire 层（真实请求与 codegen 共用）----
 export { authHeaders } from './wire/auth.js';
@@ -50,3 +66,21 @@ export {
 
 // ---- 代码生成 ----
 export { generateCode, generateMediaCode } from './generate.js';
+
+// ---- 能力注入层（能力键列表 → ctx → 同一个 buildBody / RENDERERS）----
+export {
+  CAPABILITY_PUTS,
+  capabilityPut,
+  type CapPut,
+  type CapabilityPutDef,
+} from './capabilities/catalog.js';
+export {
+  generateFromCapabilities,
+  type CapNoteCode,
+  type CapabilityGenResult,
+  type CapabilityNote,
+  type CapabilityResolution,
+  type CapabilityResolver,
+  type CapabilityStatus,
+  type FromCapabilitiesOpts,
+} from './capabilities/generate.js';

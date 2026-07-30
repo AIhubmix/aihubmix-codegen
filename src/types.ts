@@ -23,6 +23,8 @@ export interface LangDef {
   ext: string;
   /** 固定文件名（java 的 Main.java / csharp 的 Program.cs）；缺省则由 harness 按 ext 起名。 */
   fileName?: string;
+  /** 单行注释起始符。能力注入层用它把 silent-degrade 警告写进用户复制走的那段代码里。 */
+  comment: string;
   /** 运行时探测命令：真跑一次拿退出码，不用 `command -v`（会被 macOS 的 java stub 骗过）。 */
   probe: { cmd: string; args: string[] } | null;
   /** 跑通该语言全部协议示例所需的 SDK 安装命令；null = 标准库即可。 */

@@ -12,6 +12,9 @@ import type { LangDef } from '../types.js';
  *   - `ext` / `fileName` → verify harness 写盘用（java 必须叫 Main.java，类名与文件名要一致）
  *   - `probe`            → 运行时探测。用「真跑一次版本命令」而非 `command -v` —— macOS 自带的
  *                          java stub 能骗过 command -v，探测通过但一编译就炸。
+ *   - `comment`          → 单行注释符。能力注入层（capabilities/generate.ts）拿它把
+ *                          silent-degrade 警告插进生成的代码里 —— 只在网页上提示留不住，
+ *                          用户复制走的那段代码里必须带着。
  *   - `install`          → harness 一次装齐**全部协议**所需 SDK 的命令；与 `config/sdk.ts` 里
  *                          按 (lang × proto) 给用户看的那一行 install 是两回事，别合并。
  */
@@ -20,6 +23,7 @@ export const LANGS: LangDef[] = [
     id: 'python',
     label: 'Python',
     ext: '.py',
+    comment: '#',
     probe: { cmd: 'python3', args: ['--version'] },
     install: 'pip install openai anthropic',
   },
@@ -27,6 +31,7 @@ export const LANGS: LangDef[] = [
     id: 'javascript',
     label: 'TypeScript',
     ext: '.mjs',
+    comment: '//',
     probe: { cmd: 'node', args: ['--version'] },
     install: 'npm install openai @anthropic-ai/sdk',
   },
@@ -34,6 +39,7 @@ export const LANGS: LangDef[] = [
     id: 'go',
     label: 'Go',
     ext: '.go',
+    comment: '//',
     probe: { cmd: 'go', args: ['version'] },
     install: 'go get github.com/sashabaranov/go-openai',
   },
@@ -43,6 +49,7 @@ export const LANGS: LangDef[] = [
     label: 'Java',
     ext: '.java',
     fileName: 'Main.java',
+    comment: '//',
     probe: { cmd: 'java', args: ['-version'] },
     install: null,
   },
@@ -52,6 +59,7 @@ export const LANGS: LangDef[] = [
     label: 'C#',
     ext: '.cs',
     fileName: 'Program.cs',
+    comment: '//',
     probe: { cmd: 'dotnet', args: ['--version'] },
     install: null,
   },
@@ -60,6 +68,7 @@ export const LANGS: LangDef[] = [
     id: 'ruby',
     label: 'Ruby',
     ext: '.rb',
+    comment: '#',
     probe: { cmd: 'ruby', args: ['--version'] },
     install: 'gem install ruby-openai',
   },
@@ -67,6 +76,7 @@ export const LANGS: LangDef[] = [
     id: 'curl',
     label: 'cURL',
     ext: '.sh',
+    comment: '#',
     probe: { cmd: 'curl', args: ['--version'] },
     install: null,
   },

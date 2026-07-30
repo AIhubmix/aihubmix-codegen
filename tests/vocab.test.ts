@@ -4,7 +4,13 @@
  * 是历史事实，合并会让任一方改名时静默漏协议。所以各自有测试。
  */
 import { describe, expect, it } from 'vitest';
-import { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from '../src/config/vocab.js';
+import {
+  CANON_TO_PROTO,
+  ENDPOINT_TO_PROTO,
+  KIND_TO_PROTO,
+  PROTO_TO_CANON,
+  protosFromEndpoints,
+} from '../src/config/vocab.js';
 
 describe('KIND_TO_PROTO（网关 schema 的 endpoint.kind）', () => {
   it('四协议映射齐全，responses 的单复数别名都在', () => {
@@ -51,5 +57,21 @@ describe('protosFromEndpoints', () => {
 
   it('已知项与未知项混排时只留已知的，不整条作废', () => {
     expect(protosFromEndpoints('chat_completions,brand_new_api')).toEqual(['chat']);
+  });
+});
+
+describe('PROTO_TO_CANON（canon 投影的 protocol 字段）', () => {
+  it('四协议都有 canon 全名', () => {
+    expect(PROTO_TO_CANON.chat).toBe('openai.chat_completions');
+    expect(PROTO_TO_CANON.responses).toBe('openai.responses');
+    expect(PROTO_TO_CANON.messages).toBe('anthropic.messages');
+    expect(PROTO_TO_CANON.gemini).toBe('google.gemini');
+  });
+
+  it('反表由正表自动导出，来回转换是恒等 —— 不手写第二份', () => {
+    for (const [proto, canon] of Object.entries(PROTO_TO_CANON)) {
+      expect(CANON_TO_PROTO[canon]).toBe(proto);
+    }
+    expect(Object.keys(CANON_TO_PROTO)).toHaveLength(Object.keys(PROTO_TO_CANON).length);
   });
 });
