@@ -138,6 +138,18 @@ const VARIANTS = {
     },
     p: { ...baseP, seed: 7, n: 1, top_logprobs: 3 },
   },
+  /**
+   * 唯一一个换模型 id 的变体 —— 其余变体全是 claude-opus-5。
+   *
+   * 为什么单独留一格：go-openai 的 ReasoningValidator 按模型 id 前缀（o1/o3/o4/gpt-5）
+   * 在客户端拦参数，go × chat 因此有两条渲染路径。整个基线只有一个非 reasoning 模型时，
+   * 那条路径对快照完全不可见 —— 改坏了 diff 依然是零，看着像「没有影响」。
+   * 只多 28 个文件（一个变体 = 4 协议 × 7 语言），换来这条路径进基线。
+   */
+  'reasoning-model': {
+    model: { id: 'gpt-5.5' },
+    p: { ...baseP, n: 2, top_logprobs: 3 },
+  },
   everything: {
     stream: true,
     messages: HISTORY,

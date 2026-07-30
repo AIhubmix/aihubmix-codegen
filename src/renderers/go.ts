@@ -97,6 +97,29 @@ export const GO_CHAT_KEYS: readonly string[] = [
   ...GO_OBJ_FIELDS.map((f) => f.key),
 ];
 
+/**
+ * go-openai 的 `ReasoningValidator`（`reasoning_validator.go`，已对 v1.41.2 逐行核过）在
+ * **客户端**就拦掉的一组参数 —— 命中时 `CreateChatCompletion` 在发请求之前直接返回 error，
+ * 示例连一次网络调用都没有，用户看到的是一段 panic。
+ *
+ * 判据是**模型 id 前缀**，与网关无关：同一份 body 用 curl 发过去网关照收（线上实测 200）。
+ * 所以这是「go-openai 这个 SDK 的限制」，不是协议事实，只影响 go × chat 这一格 ——
+ * 另外三个协议的 Go 示例走 net/http，不受影响。
+ *
+ * 上游那条规则原样镜像如下（改这里之前先对一遍上游文件，它是唯一真源）：
+ * 模型 id 以 `o1` / `o3` / `o4` / `gpt-5` 开头时——
+ *   - `MaxTokens > 0` → 报错，要求改用 `MaxCompletionTokens`
+ *   - `LogProbs` 为 true → 报错
+ *   - `Temperature` / `TopP` / `N` 只允许 1（或不设）
+ *   - `PresencePenalty` / `FrequencyPenalty` 只允许 0（或不设）
+ */
+const GO_REASONING_PREFIXES = ['o1', 'o3', 'o4', 'gpt-5'] as const;
+
+/** 模型 id 会不会命中 go-openai 的 reasoning 客户端校验。 */
+export function goReasoningModel(id: string): boolean {
+  return GO_REASONING_PREFIXES.some((pfx) => id.startsWith(pfx));
+}
+
 /** 数值键 → go-openai 的 float32/int 字段。发不发由「schema 声明 + 值存在」决定，值原样透传。 */
 const GO_NUM_FIELDS: { key: string; field: string }[] = [
   { key: 'frequency_penalty', field: 'FrequencyPenalty' },
@@ -147,14 +170,35 @@ export function goChat(ctx: CodeGenCtx): string {
   const d = SDK.go?.chat;
   if (!d) throw new Error('config/sdk.ts 缺 go × chat 记录');
   const msgs = goMessages(ctx);
-  // go-openai 对 o1/gpt-5 等新模型客户端侧拒绝 MaxTokens，要求 MaxCompletionTokens；按 schema 是否声明切换。
-  const maxField = ctx.paramKeys?.includes('max_completion_tokens')
+
+  // go-openai 的 ReasoningValidator 会不会拦这次请求。命中时下面几个字段必须让路，
+  // 否则 CreateChatCompletion 在**发请求之前**就返回 error，示例一行输出都没有。
+  const isReasoning = goReasoningModel(model.id);
+  /** 因为上面那条客户端校验而没能渲染出来的 body 键，最后并进 droppedNote 一起点名。 */
+  const blockedByValidator: string[] = [];
+  /** 命中 reasoning 校验时挡下这个键并记账；返回「是否放行」。 */
+  const allowUnlessReasoning = (key: string): boolean => {
+    if (!isReasoning) return true;
+    blockedByValidator.push(key);
+    return false;
+  };
+
+  // MaxTokens vs MaxCompletionTokens：判据是 go-openai 自己那条模型 id 前缀规则，不是
+  // schema 声明了哪个键。以前只看 ctx.paramKeys.includes('max_completion_tokens')——那要求
+  // 调用方的 schema 恰好声明了它，gpt-5 系模型在 schema 没声明时就会渲染出 MaxTokens 然后
+  // 当场 panic（线上实测复现过）。这里两个触发条件取并集：模型 id 命中，或 schema 明说要它。
+  const useMaxCompletion = isReasoning || !!ctx.paramKeys?.includes('max_completion_tokens');
+  const maxField = useMaxCompletion
     ? `\n\t\t\tMaxCompletionTokens: ${p.max_tokens},`
     : `\n\t\t\tMaxTokens: ${p.max_tokens},`;
   // temperature/top_p 仅在 schema 声明且非默认(1)时发 —— 多数模型互斥/锁定，默认值会被拒。
+  // 非 1 的取值正是 ReasoningValidator 要拦的那种，所以 reasoning 模型下整条让路。
   const tempField =
-    inSchema(ctx, 'temperature') && +(p.temperature ?? 1) !== 1 ? `\n\t\t\tTemperature: ${num(p.temperature ?? 1)},` : '';
-  const toppField = inSchema(ctx, 'top_p') && +(p.top_p ?? 1) !== 1 ? `\n\t\t\tTopP: ${num(p.top_p ?? 1)},` : '';
+    inSchema(ctx, 'temperature') && +(p.temperature ?? 1) !== 1 && allowUnlessReasoning('temperature')
+      ? `\n\t\t\tTemperature: ${num(p.temperature ?? 1)},` : '';
+  const toppField =
+    inSchema(ctx, 'top_p') && +(p.top_p ?? 1) !== 1 && allowUnlessReasoning('top_p')
+      ? `\n\t\t\tTopP: ${num(p.top_p ?? 1)},` : '';
   const reasoningField = ctx.think ? `\n\t\t\tReasoningEffort: "${ctx.thinkLevel}",` : '';
 
   // 结构化字段（logit_bias/stop/metadata）→ go-openai 强类型字段；空容器/未声明跳过。
@@ -178,6 +222,10 @@ export function goChat(ctx: CodeGenCtx): string {
   for (const m of GO_NUM_FIELDS) {
     const v = bodyChat[m.key];
     if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    // n / presence_penalty / frequency_penalty 三个都在 ReasoningValidator 的拦截名单里
+    // （n 只许 1，两个 penalty 只许 0）。buildBody 已经滤掉了等于默认值的取值，所以能走到
+    // 这里的必然是会被拦的那种 —— 直接让路并记账，别渲染出一段发不出去的代码。
+    if (!allowUnlessReasoning(m.key)) continue;
     scalarFields += `\n\t\t\t${m.field}: ${num(v)},`;
   }
   for (const m of GO_STR_FIELDS) {
@@ -243,28 +291,37 @@ export function goChat(ctx: CodeGenCtx): string {
     tcField = `\n\t\t\tToolChoice: json.RawMessage(\`${goRawSafe(JSON.stringify(tc))}\`),`;
   }
 
-  // 剩下的：go-openai 的 ChatCompletionRequest 里根本没有对应字段（该 struct 没有 map 兜底，
-  // 也没有 ExtraBody —— 已核对 v1.41.2 的定义）。以前这些键在 go chat **静默消失**，示例看着
-  // 好好的、发出去却少了参数。现在把它们点名写进生成的代码里：修不了就至少别瞒着。
-  const knownGo = new Set(GO_CHAT_KEYS);
-  const dropped = Object.keys(bodyChat).filter((k) => !knownGo.has(k));
-  const droppedNote = dropped.length
-    ? `\n\t// 注意：go-openai 的 ChatCompletionRequest 没有以下字段，本示例发不出去：\n` +
-      `\t//   ${dropped.join(', ')}\n` +
-      `\t// 需要它们的话改用 net/http 直接发 JSON（本页其余三个协议的 Go 示例就是那种写法）。\n`
-    : '';
-
   // seed（*int）：go-openai 取指针，故在请求前声明局部变量再取址。
   const seed = p.seed;
   const hasSeed = inSchema(ctx, 'seed') && seed != null;
   const seedDecl = hasSeed ? `\n\tseed := ${num(seed as number)}\n` : '';
   const seedField = hasSeed ? `\n\t\t\tSeed: &seed,` : '';
   // top_logprobs（int）：需同时置 LogProbs: true 才会返回 logprobs。
+  // 这一对必须一起发，而 LogProbs: true 是 ReasoningValidator 明确拦的一条，所以整对让路。
   const tlp = p.top_logprobs;
   const logprobsField =
-    inSchema(ctx, 'top_logprobs') && tlp != null
+    inSchema(ctx, 'top_logprobs') && tlp != null && allowUnlessReasoning('top_logprobs')
       ? `\n\t\t\tLogProbs: true,\n\t\t\tTopLogProbs: ${num(tlp)},`
       : '';
+
+  // 两类发不出去的键，合成一段注释一起点名（必须放在所有字段都算完之后，
+  // blockedByValidator 是一路累积上来的）。它们的原因不同，所以分两行说，别混成一句：
+  //   · struct 里根本没这个字段 —— 换 net/http 才发得出去
+  //   · struct 有字段，但 go-openai 的客户端校验不让这个模型带它 —— 换个模型才发得出去
+  const knownGo = new Set(GO_CHAT_KEYS);
+  const dropped = Object.keys(bodyChat).filter((k) => !knownGo.has(k));
+  const droppedNote =
+    (dropped.length
+      ? `\n\t// 注意：go-openai 的 ChatCompletionRequest 没有以下字段，本示例发不出去：\n` +
+        `\t//   ${dropped.join(', ')}\n` +
+        `\t// 需要它们的话改用 net/http 直接发 JSON（本页其余三个协议的 Go 示例就是那种写法）。\n`
+      : '') +
+    (blockedByValidator.length
+      ? `\n\t// 注意：go-openai 对 o1/o3/o4/gpt-5 系模型有一层客户端校验（reasoning_validator.go），\n` +
+        `\t// 带上以下参数会让请求在**发出之前**就返回 error，所以本示例没有渲染它们：\n` +
+        `\t//   ${blockedByValidator.join(', ')}\n` +
+        `\t// 网关本身是收这些参数的（同一份 body 用 curl 发得通），这是该 SDK 的限制。\n`
+      : '');
 
   const stdImports = needsJSON ? '\t"context"\n\t"encoding/json"\n\t"fmt"' : '\t"context"\n\t"fmt"';
 

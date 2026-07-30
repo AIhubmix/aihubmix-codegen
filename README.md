@@ -86,6 +86,10 @@ Two lists still need manual upkeep, both covered by tests:
 
   Every key that *does* have a struct field is mapped. Anything left over is **named in a comment in the emitted code** rather than silently dropped, so the snippet tells you what it isn't sending and points at `net/http` as the way out. `tests/extensibility.test.ts` asserts both halves — the leftover key appears in a comment and does *not* appear in the request struct — and `scripts/test-codegen-escaping.mjs` runs a real `go build` over the result. When you add a parameter, check whether `go-openai` has a field for it: if yes, map it and add the key here; if no, do nothing and the comment picks it up.
 
+- `GO_REASONING_PREFIXES` — `go-openai` ships a **client-side** validator (`reasoning_validator.go`) that rejects a set of parameters for models whose id starts with `o1` / `o3` / `o4` / `gpt-5`. It fires *before the request is sent*, so a snippet that trips it prints a panic and never reaches the gateway. This is an SDK rule, not a gateway one — the identical body sent with `curl` returns 200.
+
+  Consequently the `go` + `chat` cell renders `MaxCompletionTokens` instead of `MaxTokens` for those models, and omits `temperature`, `top_p`, `n`, the two penalties, and `logprobs` — again **naming them in a comment**, worded to distinguish "this SDK won't send it" from "no struct field exists". The trigger is the model id, not `paramKeys`: most models today carry no schema at all, and keying off one would put every `gpt-5` request on the panicking path. Mirror upstream when it changes; `tests/go-reasoning-validator.test.ts` covers both branches and the escaping harness `go build`s each.
+
 ## One wire-level correction
 
 `buildBody()` passes values through; it does not second-guess them. The single exception is the `messages` protocol, where Anthropic requires `max_tokens` to be **strictly greater** than `thinking.budget_tokens` — violating it is a hard 400, not a degradation. When extended thinking is on and `max_tokens` is not above the budget, `buildBody()` raises it to `budget_tokens + 1024`.

@@ -29,8 +29,17 @@ const FACTS: { name: string; re: RegExp }[] = [
   { name: 'gemini 路由', re: /\/gemini\/v1beta/ },
 ];
 
+/**
+ * 只走本仓自己的源码：跳过 node_modules 与点开头目录。
+ *
+ * 不跳会怎样：`verify:codegen` 会在 `scripts/.verify-runtime/` 里真装一份 openai /
+ * @anthropic-ai/sdk 来跑生成的代码，那底下几十个文件当然写着 `/v1/messages`、
+ * `2023-06-01` —— 全被判成「脚本里写死了网关事实」。这类目录都在 .gitignore 里，
+ * 所以干净 checkout 的 CI 一直是绿的，**只有本地跑过验证的人会红**，是最难查的那种假红。
+ */
 function walk(dir: string, out: string[] = [], exts = ['.ts']): string[] {
   for (const name of readdirSync(dir)) {
+    if (name === 'node_modules' || name.startsWith('.')) continue;
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walk(p, out, exts);
     else if (exts.some((e) => p.endsWith(e))) out.push(p);

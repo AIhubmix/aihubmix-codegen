@@ -107,22 +107,34 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
       skip('go chat compiles', 'go module 拉取失败（离线？）');
     }
     if (goDir) {
-      check('go chat compiles（含 tools / response_format 嵌套 struct）', () => {
-        // 用带 tools + structured 的 ctx：不带它们等于没测到新增的那两段渲染。
-        const rich = {
-          ...ctx,
-          // EVIL 进到 schema **内部**：那段 JSON 是嵌进 Go raw string（反引号）的，而 EVIL 里
-          // 正好带一个反引号 —— 不经 goRawSafe 就会当场截断 raw string，编译失败。
-          tools: [{ name: 'evil_tool', description: EVIL, parameters: JSON.stringify({ type: 'object', properties: { q: { type: 'string', description: EVIL } } }) }],
-          structured: { format: 'json_schema', name: 'answer', schema: JSON.stringify({ type: 'object', properties: { a: { type: 'string', description: EVIL } } }) },
-          // tool_choice 走 json.RawMessage（字段类型是 any），工具名里带反引号同样能截断 raw string。
-          toolChoice: { mode: 'tool', name: EVIL },
-          objects: { stop: [EVIL] },
-          paramKeys: [...ctx.paramKeys, 'tools', 'tool_choice', 'response_format', 'stop'],
-        };
-        writeFileSync(join(goDir, 'main.go'), gen.generateCode('chat', 'go', rich));
-        execFileSync('go', ['build', '-o', join(goDir, 'out.bin'), '.'], { cwd: goDir, stdio: 'pipe' });
-      });
+      // 两个模型 id 各编一次。go-openai 的 ReasoningValidator 按**模型 id 前缀**
+      // （o1/o3/o4/gpt-5）拦参数，渲染器因此分了两条路：命中的走 MaxCompletionTokens
+      // 且让掉 temperature/top_p/n/penalty/logprobs 并补一段注释，没命中的照常全渲染。
+      // 只编一个 id 等于只编一条路 —— 上面那个 ctx 恰好是 gpt-5.5，非 reasoning 那条
+      // （今天绝大多数模型走的路）一直没被编译验证过。
+      for (const [label, modelId] of [['reasoning(gpt-5)', 'gpt-5.5'], ['普通模型', 'gpt-4o']]) {
+        check(`go chat compiles / ${label}（含 tools / response_format 嵌套 struct）`, () => {
+          // 用带 tools + structured 的 ctx：不带它们等于没测到新增的那两段渲染。
+          const rich = {
+            ...ctx,
+            model: { id: modelId },
+            // EVIL 进到 schema **内部**：那段 JSON 是嵌进 Go raw string（反引号）的，而 EVIL 里
+            // 正好带一个反引号 —— 不经 goRawSafe 就会当场截断 raw string，编译失败。
+            tools: [{ name: 'evil_tool', description: EVIL, parameters: JSON.stringify({ type: 'object', properties: { q: { type: 'string', description: EVIL } } }) }],
+            structured: { format: 'json_schema', name: 'answer', schema: JSON.stringify({ type: 'object', properties: { a: { type: 'string', description: EVIL } } }) },
+            // tool_choice 走 json.RawMessage（字段类型是 any），工具名里带反引号同样能截断 raw string。
+            toolChoice: { mode: 'tool', name: EVIL },
+            objects: { stop: [EVIL] },
+            // 这几个数值参数正是 ReasoningValidator 的拦截名单：普通模型下要渲染成 struct 字段，
+            // reasoning 模型下要整批消失并被注释点名。两条路都得编得过。
+            p: { ...ctx.p, temperature: 0.7, top_p: 0.9, n: 2, frequency_penalty: 0.5, presence_penalty: 0.3, top_logprobs: 3 },
+            paramKeys: [...ctx.paramKeys, 'top_p', 'n', 'frequency_penalty', 'presence_penalty',
+              'top_logprobs', 'tools', 'tool_choice', 'response_format', 'stop'],
+          };
+          writeFileSync(join(goDir, 'main.go'), gen.generateCode('chat', 'go', rich));
+          execFileSync('go', ['build', '-o', join(goDir, 'out.bin'), '.'], { cwd: goDir, stdio: 'pipe' });
+        });
+      }
     }
   }
 
