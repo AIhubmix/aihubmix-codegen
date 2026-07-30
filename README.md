@@ -84,6 +84,12 @@ Two lists still need manual upkeep, both covered by tests:
 - `PY_OPENAI_NATIVE` — whether a key renders as a native kwarg or lands in `extra_body`. Fail-safe either way: the snippet still runs.
 - `GO_OBJ_FIELDS` — `go-openai` is a typed struct, so an unmapped object/array parameter is **dropped** from the `go` + `chat` cell (the other six languages are fine). `tests/extensibility.test.ts` fails loudly when this happens.
 
+## One wire-level correction
+
+`buildBody()` passes values through; it does not second-guess them. The single exception is the `messages` protocol, where Anthropic requires `max_tokens` to be **strictly greater** than `thinking.budget_tokens` — violating it is a hard 400, not a degradation. When extended thinking is on and `max_tokens` is not above the budget, `buildBody()` raises it to `budget_tokens + 1024`.
+
+It lives here rather than in a caller because the correction has to apply to the real request, not only to the printed snippet. A parameter panel that lets the user set an 8192 budget against a 1024 limit would otherwise show working code next to a request that 400s. `tests/thinking-budget.test.ts` calls `buildBody()` directly, without going through any capability layer, for exactly that reason.
+
 ## Node / CommonJS
 
 The package must be `require()`-able from bare Node — `inferera-web`'s prerender step is a consumer:

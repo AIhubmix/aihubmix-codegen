@@ -56,6 +56,31 @@ function emitExtraNumbers(b: Record<string, unknown>, ctx: CodeGenCtx, proto: Co
   }
 }
 
+/**
+ * Anthropic 硬约束：开了 extended thinking 时 `max_tokens` 必须 **严格大于**
+ * `thinking.budget_tokens`，否则请求直接 400（不是降级，是拒绝）。
+ *
+ * 为什么住这儿：这条以前写在能力注入层的 put 里，意味着**只有代码示例被保护、真实请求不被
+ * 保护** —— playground 的参数面板可以同时把 budget 调到 8192、max_tokens 留在 1024，那一发
+ * 就是 400，而 Get Code 出的示例却是好的。同一个不变量在两条路径上行为不同，本身就是 bug。
+ * 沉到 buildBody 之后两边同源（包不变量：一切经 buildBody）。
+ *
+ * 抬到 `budget + 1024` 而不是 `budget + 1`：约束只要求大于，但 max_tokens 是**含思考在内**的
+ * 总预算，只留 1 个 token 意味着思考完就没额度写答案了，请求能过、结果是空的。1024 与
+ * Anthropic 自己的 budget 下限同一个数量级，留给可见答案。
+ *
+ * 只在 messages 协议调用 —— chat/responses/gemini 的思考档位不是数值预算，没有这条约束。
+ */
+function enforceThinkingBudget(b: Record<string, unknown>): void {
+  const thinking = b.thinking;
+  if (!thinking || typeof thinking !== 'object' || Array.isArray(thinking)) return;
+  const budget = (thinking as Record<string, unknown>).budget_tokens;
+  if (typeof budget !== 'number' || !Number.isFinite(budget)) return;
+  const max = b.max_tokens;
+  if (typeof max === 'number' && max > budget) return;
+  b.max_tokens = budget + 1024;
+}
+
 export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unknown> {
   const { model, sys, user, p, stream } = ctx;
   const imgs = ctx.images && ctx.images.length ? ctx.images : null;
@@ -94,6 +119,7 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitObjects(b, ctx);
     emitExtraNumbers(b, ctx, proto);
     emitCapabilities(b, ctx, proto);
+    enforceThinkingBudget(b);
     b.stream = stream;
     return b;
   }
