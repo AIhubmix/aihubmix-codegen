@@ -16,7 +16,9 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const SRC = join(ROOT, 'src');
+const SCRIPTS = join(ROOT, 'scripts');
 
 /** 只允许出现在 src/config/** 的事实字面量。 */
 const FACTS: { name: string; re: RegExp }[] = [
@@ -27,11 +29,11 @@ const FACTS: { name: string; re: RegExp }[] = [
   { name: 'gemini 路由', re: /\/gemini\/v1beta/ },
 ];
 
-function walk(dir: string, out: string[] = []): string[] {
+function walk(dir: string, out: string[] = [], exts = ['.ts']): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) walk(p, out);
-    else if (p.endsWith('.ts')) out.push(p);
+    if (statSync(p).isDirectory()) walk(p, out, exts);
+    else if (exts.some((e) => p.endsWith(e))) out.push(p);
   }
   return out;
 }
@@ -79,6 +81,73 @@ describe('事实只住 config/', () => {
   it('包里没有任何写死的 base：src/ 全域搜不到 aihubmix.com 的代码用法', () => {
     const all = walk(SRC).map((f) => stripComments(readFileSync(f, 'utf8'))).join('\n');
     expect(/aihubmix\.com/.test(all)).toBe(false);
+  });
+});
+
+/**
+ * 同一道门扩到 scripts/**。
+ *
+ * 为什么脚本也要管：verify-codegen.mjs 会把 base 直接注入 ctx.baseUrl 再**真发请求**，
+ * 脚本里留一个默认域就等于多了一份真源 —— 它和 workflow 白名单一漂，就会出现
+ * 「拿 A 域的 key 打 B 域」。域名只准在 workflow 的白名单里出现一次。
+ *
+ * 豁免不是「加进去就完事」：下面每条都带理由，且有一条测试反过来验它**仍然命中** ——
+ * 豁免的前提消失（比如 snapshot 不再需要归一化）时，这里会红，逼着把豁免删掉。
+ */
+const SCRIPT_EXEMPTIONS: { file: string; fact: string; why: string }[] = [
+  {
+    file: 'snapshot.mjs',
+    fact: '网关域名',
+    why: '快照基线归一化：before 基线是「域名写死在 codegen 里」那个年代的产物，要把旧域替换成注入的 base 才比得了。是历史事实，不是当前默认值。',
+  },
+  {
+    file: 'smoke-node.cjs',
+    fact: '网关域名',
+    why: '反向断言（assert 产物里**不含**该域），出现在这里恰恰是在防写死，删了就没人守这条。',
+  },
+  {
+    file: 'verify-codegen.mjs',
+    fact: 'API key 占位',
+    why: '这是**验证器自己**读凭证的环境变量名，与生成代码里的 key 占位符是两回事（后者已改成 import API_KEY_PLACEHOLDER）。同名纯属就手。',
+  },
+];
+
+describe('事实只住 config/ —— scripts/ 同门', () => {
+  const files = walk(SCRIPTS, [], ['.mjs', '.cjs', '.js']);
+  const hitsOf = (f: string) => {
+    const code = stripComments(readFileSync(f, 'utf8'));
+    return FACTS.filter((fact) => fact.re.test(code)).map((fact) => fact.name);
+  };
+
+  it('扫描确实覆盖到了 scripts（防止 walk 写错导致空跑假绿）', () => {
+    expect(files.some((f) => f.endsWith('verify-codegen.mjs'))).toBe(true);
+    expect(files.length).toBeGreaterThan(3);
+  });
+
+  it('scripts/ 下不得出现硬编码的网关事实（豁免见 SCRIPT_EXEMPTIONS）', () => {
+    const allowed = new Set(SCRIPT_EXEMPTIONS.map((e) => `${e.file}/${e.fact}`));
+    const bad: string[] = [];
+    for (const f of files) {
+      const name = relative(SCRIPTS, f);
+      for (const fact of hitsOf(f)) {
+        if (!allowed.has(`${name}/${fact}`)) bad.push(`${name} → ${fact}`);
+      }
+    }
+    expect(bad, `脚本不该带这些事实（要么 import 包里的常量，要么由参数传入）：\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  it('豁免仍然名副其实：每条豁免都还命中，否则该删掉', () => {
+    const stale = SCRIPT_EXEMPTIONS.filter(
+      (e) => !hitsOf(join(SCRIPTS, e.file)).includes(e.fact),
+    ).map((e) => `${e.file}/${e.fact}`);
+    expect(stale, `这些豁免已经没有对应事实了，删掉：\n  ${stale.join('\n  ')}`).toEqual([]);
+  });
+
+  it('verify 脚本的 key 占位符来自包，不是抄的字面量', () => {
+    const src = readFileSync(join(SCRIPTS, 'verify-codegen.mjs'), 'utf8');
+    expect(src).toMatch(/API_KEY_PLACEHOLDER/);
+    // 占位符只准经 gen.API_KEY_PLACEHOLDER 用；出现 'AIHUBMIX_API_KEY' 字面量做替换就是抄了第二份。
+    expect(stripComments(src)).not.toMatch(/replace(All)?\([^)]*AIHUBMIX_API_KEY/);
   });
 });
 

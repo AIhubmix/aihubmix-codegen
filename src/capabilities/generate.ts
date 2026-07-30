@@ -43,7 +43,9 @@ export type CapNoteCode =
   /** apply 了但没落进 body —— 生成器的缺口，必须显式暴露而不是假装成功。 */
   | 'not-landed'
   /** capabilities 里传了本表没有的 key。 */
-  | 'unknown-capability';
+  | 'unknown-capability'
+  /** 调用方的 resolve() 抛了异常 —— 按「查不到」处理，只影响这一条能力。 */
+  | 'resolver-error';
 
 export interface CapabilityNote {
   level: 'warn' | 'info';
@@ -81,7 +83,11 @@ export interface CapabilityResolution {
 
 /**
  * (能力 key, 协议) → 记录 | null。
- * **不得抛异常**：一次 resolve 失败不该让整行能力 chip 渲染不出来。
+ *
+ * **契约上不得抛异常**：一次 resolve 失败不该让整行能力 chip 渲染不出来。
+ * 但契约写给调用方、约束不了运行时（resolve 往往是调用方现写的 canon 查表，
+ * 一个 `undefined.protocols` 就抛了），所以 generateFromCapabilities 内部对每条能力
+ * 单独 try/catch 兜底：抛了的那条按 `resolver-error` 记账、置为不可选，其余照常。
  */
 export type CapabilityResolver = (
   cap: string,
@@ -112,6 +118,12 @@ export interface CapabilityGenResult {
   notes: CapabilityNote[];
   /** **全部** 11 条能力的状态（不只勾选的那几条）——UI 要渲染整行 chip。 */
   availability: Record<string, CapabilityStatus>;
+}
+
+/** 异常 → 一行可读文字。note.text 会被塞进生成的代码注释，所以只取首行、掐长度。 */
+function errText(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e);
+  return (m || 'unknown error').split('\n')[0].slice(0, 120);
 }
 
 /** resolve 的返回 → 字段名数组。 */
@@ -155,7 +167,15 @@ export function generateFromCapabilities(opts: FromCapabilitiesOpts): Capability
 
   // ---- 第一遍：定可用性，按表序应用可用且被勾选的能力 ----
   for (const def of CAPABILITY_PUTS) {
-    const res = resolve(def.key, protocol);
+    // 逐能力隔离：调用方的 resolve 抛了，只废掉这一条，不掀掉整次生成（见 CapabilityResolver 注释）。
+    let res: CapabilityResolution | null | undefined;
+    let resolverError: unknown;
+    try {
+      res = resolve(def.key, protocol);
+    } catch (e) {
+      resolverError = e;
+      res = null;
+    }
     const fields = fieldsOf(res);
     const verdict = res?.verdict ?? null;
     const policy = verdictPolicy(verdict);
@@ -166,14 +186,31 @@ export function generateFromCapabilities(opts: FromCapabilitiesOpts): Capability
       cap: def.key,
       label: def.label,
       proto: protocol,
-      selectable: policy.selectable && !!put,
-      level: policy.level,
-      reason: !res ? 'no-canon-entry' : policy.selectable ? 'ok' : 'verdict',
+      // resolve 抛了 = 查不到，一律不可选：拿不到字段名就无从判断该模型支不支持，
+      // 猜着发比不发更糟（会把不支持的字段真发到网关）。
+      selectable: !resolverError && policy.selectable && !!put,
+      level: resolverError ? 'unsupported' : policy.level,
+      reason: resolverError
+        ? 'resolver-error'
+        : !res
+          ? 'no-canon-entry'
+          : policy.selectable
+            ? 'ok'
+            : 'verdict',
       verdict,
       fields,
       requested: isRequested,
       applied: false,
     };
+
+    if (resolverError && isRequested) {
+      notes.push({
+        level: 'warn',
+        cap: def.key,
+        code: 'resolver-error',
+        text: `Could not look up "${def.key}" for ${protocol} (${errText(resolverError)}), so it was left out of the snippet.`,
+      });
+    }
 
     // canon 说支持、包里没有 put：这是生成器的缺口，等级降到 unsupported 并带上记账说明。
     if (res && policy.selectable && !put) {

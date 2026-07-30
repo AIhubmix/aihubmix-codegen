@@ -75,6 +75,8 @@ const isMain = !!process.argv[1] && (() => {
   catch { return false; }
 })();
 
+// 注意：这是**验证器自己**的凭证来源（本机 shell 里的环境变量），与生成代码里的 key 占位符
+// 是两回事 —— 后者是 gen.API_KEY_PLACEHOLDER，见 runCombo()。同名纯属就手，别把两者合并。
 const KEY = process.env.VERIFY_API_KEY || process.env.AIHUBMIX_API_KEY;
 if (isMain && !KEY) {
   console.error('✗ 需要环境变量 VERIFY_API_KEY（或 AIHUBMIX_API_KEY，真实打网关用）。');
@@ -83,9 +85,17 @@ if (isMain && !KEY) {
 }
 
 // --base：既是取 schema 的地址，也是**注入进 ctx.baseUrl 的地址**。
-// 原先脚本是 `code.replaceAll('https://aihubmix.com', BASE_OVERRIDE)` 后处理换域，意味着
+// 原先脚本是 `code.replaceAll(<域名>, BASE_OVERRIDE)` 后处理换域，意味着
 // 「被验证的字节 ≠ 用户拿到的字节」；baseUrl 变必填之后直接传进 ctx，验的就是真产物。
-const BASE = argVal('--base') || 'https://aihubmix.com';
+//
+// **必填、脚本内不留默认域**：默认域会和 workflow 的 base 白名单形成第二份真源，
+// 两边漂了就会「用 A 域的 key 打 B 域」。域名只在 workflow 的白名单里出现一次。
+const BASE = argVal('--base');
+if (isMain && !BASE) {
+  console.error('✗ 需要 --base <网关根地址>（如 --base https://example.gateway）。');
+  console.error('  脚本不带默认域：它会被直接注入 ctx.baseUrl，必须与 VERIFY_API_KEY 匹配。');
+  process.exit(2);
+}
 
 const PROMPT = 'Reply with exactly: ok';
 
@@ -294,7 +304,10 @@ function srcName(def, proto) {
 async function runCombo(gen, proto, lang, rt) {
   const def = gen.langDef(lang);
   const code = gen.generateCode(proto, lang, makeCtx(rt.paramKeysByProto[proto], rt.paramPropsByProto?.[proto]));
-  const withKey = () => code.replace(/AIHUBMIX_API_KEY/g, KEY);
+  // 占位符从包里读（gen.API_KEY_PLACEHOLDER），**不抄一份字面量**：
+  // 抄了之后 config/placeholders.ts 改名，renderer 出新占位符而这里仍替换旧的，
+  // 结果是 7 门语言全部拿不到 key、真跑验证整片鉴权失败，且失败原因指向网关而不是脚本。
+  const withKey = () => code.split(gen.API_KEY_PLACEHOLDER).join(KEY);
   const dir = await mkdtemp(join(tmpdir(), `vc-${proto}-${lang}-`));
   try {
     if (lang === 'curl') {
@@ -311,9 +324,11 @@ async function runCombo(gen, proto, lang, rt) {
       if (!rt.nodeReady) return { ok: null, note: 'node SDK 未就绪，跳过' };
       // ESM import 不认 NODE_PATH —— 把脚本写进 RUNTIME 目录，node 沿目录上溯解析 RUNTIME/node_modules
       const file = join(RUNTIME, srcName(def, proto));
-      await writeFile(file, code); // 代码用 process.env.AIHUBMIX_API_KEY，设 env 即可
+      // node 示例读的是 process.env.<占位符>，所以设同名 env 即可，不用替换字节。
+      // 变量名同样从包里取，理由同 withKey()。
+      await writeFile(file, code);
       try {
-        return classify(await capture('node', [file], { env: { ...process.env, AIHUBMIX_API_KEY: KEY } }));
+        return classify(await capture('node', [file], { env: { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }

@@ -40,13 +40,133 @@ function gen(opts: {
   });
 }
 
-describe('每条 put 都真的落进 body（landed 自校验）', () => {
+type Body = Record<string, unknown>;
+const at = (b: Body, path: string): unknown =>
+  path.split('.').reduce<unknown>((o, k) => (o as Body | undefined)?.[k], b);
+
+/**
+ * 每条 (能力 × 协议) 期望落进 body 的**具体路径与取值** —— 手写，不由被测代码推导。
+ *
+ * 为什么不能断言 `r.used` / `availability[k].applied`：那两个值都是 landed() 说了算的，
+ * 而 landed() 正是被测物之一。把 apply() 清空、landed() 改成 `() => true`，那种断言照样全绿 ——
+ * 循环论证。下面这张表是独立真源：路径写死、取值写死（对应 DEFAULT_SAMPLES），
+ * catalog 里改错一条 put 或 buildBody 换了落点，这里立刻红。
+ */
+const EXPECT_IN_BODY: Record<string, Partial<Record<CodeProto, (b: Body) => void>>> = {
+  'system-instruction': {
+    chat: (b) => expect((b.messages as Body[])[0]).toEqual({
+      role: 'system', content: 'You are a helpful assistant.',
+    }),
+    messages: (b) => expect(b.system).toBe('You are a helpful assistant.'),
+    responses: (b) => expect(b.instructions).toBe('You are a helpful assistant.'),
+    gemini: (b) => expect(at(b, 'systemInstruction.parts.0.text')).toBe('You are a helpful assistant.'),
+  },
+  'output-limit': {
+    // canon 没给 fields 时走 max_tokens；给 max_completion_tokens 的分支另有专测。
+    chat: (b) => expect(b.max_tokens).toBe(1024),
+    messages: (b) => expect(b.max_tokens).toBe(1024),
+    responses: (b) => expect(b.max_output_tokens).toBe(1024),
+    gemini: (b) => expect(at(b, 'generationConfig.maxOutputTokens')).toBe(1024),
+  },
+  streaming: {
+    chat: (b) => expect(b.stream).toBe(true),
+    messages: (b) => expect(b.stream).toBe(true),
+    responses: (b) => expect(b.stream).toBe(true),
+  },
+  'reasoning-effort': {
+    chat: (b) => expect(b.reasoning_effort).toBe('medium'),
+    responses: (b) => expect(at(b, 'reasoning.effort')).toBe('medium'),
+    messages: (b) => {
+      // budget_tokens 必填、下限 1024、且必须 < max_tokens，否则 Anthropic 直接 400。
+      expect(at(b, 'thinking.type')).toBe('enabled');
+      expect(at(b, 'thinking.budget_tokens')).toBe(2048);
+      expect(b.max_tokens as number).toBeGreaterThan(2048);
+    },
+    gemini: (b) => expect(at(b, 'generationConfig.thinkingConfig.thinkingLevel')).toBe('medium'),
+  },
+  // 四协议的 tools 是四种形状，逐个写死 —— 这正是「同一语义在不同协议的 wire 形态」。
+  'function-calling': {
+    chat: (b) => {
+      expect(at(b, 'tools.0.type')).toBe('function');
+      expect(at(b, 'tools.0.function.name')).toBe('get_weather');
+    },
+    messages: (b) => {
+      expect(at(b, 'tools.0.name')).toBe('get_weather');
+      expect(at(b, 'tools.0.input_schema.type')).toBe('object'); // Anthropic 是 input_schema，不是 parameters
+    },
+    responses: (b) => {
+      expect(at(b, 'tools.0.type')).toBe('function'); // responses 的 name 是平的，不在 function 下
+      expect(at(b, 'tools.0.name')).toBe('get_weather');
+    },
+    gemini: (b) => expect(at(b, 'tools.0.functionDeclarations.0.name')).toBe('get_weather'),
+  },
+  'structured-output-json': {
+    chat: (b) => {
+      expect(at(b, 'response_format.type')).toBe('json_schema');
+      expect(at(b, 'response_format.json_schema.name')).toBe('answer');
+    },
+    responses: (b) => {
+      expect(at(b, 'text.format.type')).toBe('json_schema');
+      expect(at(b, 'text.format.name')).toBe('answer');
+    },
+    messages: (b) => expect(at(b, 'output_config.format.type')).toBe('json_schema'),
+    gemini: (b) => {
+      expect(at(b, 'generationConfig.responseMimeType')).toBe('application/json');
+      expect(at(b, 'generationConfig.responseSchema.type')).toBe('object');
+    },
+  },
+  verbosity: {
+    chat: (b) => expect(b.verbosity).toBe('low'),
+    // responses 的 verbosity 是 text 组的子字段（先决能力 structured-output-json 提供该组）
+    responses: (b) => {
+      expect(at(b, 'text.verbosity')).toBe('low');
+      expect(at(b, 'text.format')).toBeTruthy(); // 先决能力的落点没被覆盖掉
+    },
+  },
+  vision: {
+    chat: (b) => expect(at(b, 'messages.0.content.1')).toEqual({
+      type: 'image_url', image_url: { url: 'https://example.com/photo.jpg' },
+    }),
+    responses: (b) => expect(at(b, 'input.0.content.1')).toEqual({
+      type: 'input_image', image_url: 'https://example.com/photo.jpg',
+    }),
+    messages: (b) => expect(at(b, 'messages.0.content.1')).toEqual({
+      type: 'image', source: { type: 'url', url: 'https://example.com/photo.jpg' },
+    }),
+    gemini: (b) => expect(at(b, 'contents.0.parts.1')).toEqual({
+      fileData: { mimeType: 'image/jpeg', fileUri: 'https://example.com/photo.jpg' },
+    }),
+  },
+  'explicit-cache': {
+    // 缓存断点打在 system 块上 —— system 因此从字符串变成内容块数组。
+    messages: (b) => expect(at(b, 'system.0.cache_control')).toEqual({ type: 'ephemeral' }),
+  },
+  'cache-routing-key': {
+    chat: (b) => expect(b.prompt_cache_key).toBe('my-cache-key'),
+    responses: (b) => expect(b.prompt_cache_key).toBe('my-cache-key'),
+  },
+  'background-mode': {
+    responses: (b) => expect(b.background).toBe(true),
+  },
+};
+
+describe('每条 put 都真的落进 body（断言具体路径与取值）', () => {
+  it('期望表覆盖全部 (能力 × 协议) —— 新增 put 必须同时补断言，不许静默漏测', () => {
+    const actual = CAPABILITY_PUTS.flatMap((d) => Object.keys(d.put).map((p) => `${d.key}/${p}`));
+    const declared = Object.entries(EXPECT_IN_BODY).flatMap(([k, v]) =>
+      Object.keys(v).map((p) => `${k}/${p}`),
+    );
+    expect(declared.sort()).toEqual(actual.sort());
+  });
+
   for (const def of CAPABILITY_PUTS) {
     for (const proto of Object.keys(def.put) as CodeProto[]) {
       it(`${def.key} × ${proto}`, () => {
         // 先决能力要一起勾（responses 的 verbosity 依赖结构化输出）
         const caps = [...(def.put[proto]!.requires ?? []), def.key];
         const r = gen({ proto, caps, resolve: allWith('tested-effective') });
+        EXPECT_IN_BODY[def.key]![proto]!(r.body as Body);
+        // 报告与 body 一致：上面已独立证明它真落了，这里才轮得到查报告有没有说谎。
         expect(r.used, `notes: ${JSON.stringify(r.notes)}`).toContain(def.key);
         expect(r.availability[def.key].applied).toBe(true);
         expect(r.code.length).toBeGreaterThan(0);
@@ -269,6 +389,60 @@ describe('canon 的 field 只用于消歧与展示', () => {
     });
     expect(r.used).toEqual(['vision']);
     expect(JSON.stringify(r.body).includes('messages[]')).toBe(false);
+  });
+});
+
+describe('resolve() 抛异常：逐条隔离，不掀掉整次生成', () => {
+  // resolve 是调用方现写的查表函数（canon 里少一层就 `undefined.protocols`），
+  // 契约写了「不得抛异常」也约束不了运行时。抛了整次生成就没了 = 整块代码区空白。
+  const boom: CapabilityResolver = (cap) => {
+    if (cap === 'reasoning-effort') throw new TypeError("cannot read 'protocols' of undefined");
+    return { verdict: 'tested-effective' };
+  };
+
+  it('抛的那条不可选 + 记 resolver-error，其余能力照常落地', () => {
+    const r = gen({ proto: 'chat', caps: ['reasoning-effort', 'streaming'], resolve: boom });
+    expect(r.availability['reasoning-effort'].selectable).toBe(false);
+    expect(r.availability['reasoning-effort'].reason).toBe('resolver-error');
+    expect(r.availability['reasoning-effort'].level).toBe('unsupported');
+    expect(r.used).toEqual(['streaming']); // 没被牵连
+    expect(r.body.stream).toBe(true);
+    expect('reasoning_effort' in r.body).toBe(false); // 查不到就不发，不猜
+  });
+
+  it('note 带原因文字，且不会因为异常信息很长把代码注释撑爆', () => {
+    const long = 'x'.repeat(500);
+    const r = gen({
+      proto: 'chat',
+      caps: ['reasoning-effort'],
+      resolve: (cap) => {
+        if (cap === 'reasoning-effort') throw new Error(`${long}\nsecond line`);
+        return null;
+      },
+    });
+    const note = r.notes.find((n) => n.code === 'resolver-error');
+    expect(note?.cap).toBe('reasoning-effort');
+    expect(note?.level).toBe('warn');
+    expect(note!.text.includes('\n')).toBe(false);
+    expect(note!.text.length).toBeLessThan(220);
+  });
+
+  it('全部 resolve 都抛 → 仍出得来一段最基础的可跑代码', () => {
+    const r = gen({
+      proto: 'chat',
+      caps: CAPABILITY_PUTS.map((c) => c.key),
+      resolve: () => { throw new Error('canon fetch failed'); },
+    });
+    expect(r.used).toEqual([]);
+    expect(Object.keys(r.body).sort()).toEqual(['max_tokens', 'messages', 'model', 'stream']);
+    expect(r.code.length).toBeGreaterThan(0);
+  });
+
+  it('没勾的能力抛了不产 note（整行 chip 仍渲染得出，只是不可选）', () => {
+    const r = gen({ proto: 'chat', caps: ['streaming'], resolve: boom });
+    expect(r.notes.some((n) => n.code === 'resolver-error')).toBe(false);
+    expect(r.availability['reasoning-effort'].reason).toBe('resolver-error');
+    expect(Object.keys(r.availability).length).toBe(CAPABILITY_PUTS.length);
   });
 });
 

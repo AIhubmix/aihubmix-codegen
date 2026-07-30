@@ -25,7 +25,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // 对抗内容：能逃逸字符串字面量 / 触发 Ruby 插值 / 混入布尔单词的各类字符。
 const EVIL = 'say "hi" \\ path C:\\x and #{system("id")} and true false null $(whoami) `id`';
 const ctx = {
-  baseUrl: 'https://aihubmix.com',
+  // 保留域（RFC 2606 的 .example TLD）：这个 harness 只做语法校验、从不真发请求，
+  // 用真域名会让「不得在 scripts/ 里写死网关域」的门失效，也容易被误读成默认值。
+  baseUrl: 'https://gateway.example',
   model: { id: 'gpt-5.5' },
   sys: 'Return true when valid #{x}',
   user: EVIL,
