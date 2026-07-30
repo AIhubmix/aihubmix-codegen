@@ -15,7 +15,7 @@ import { LANGS } from '../src/config/languages.js';
 import { generateCode } from '../src/generate.js';
 import { buildBody } from '../src/wire/body.js';
 import { GO_CHAT_KEYS, GO_OBJ_FIELDS } from '../src/renderers/go.js';
-import { PARAM_KEYS, baseCtx, ctxWith } from './fixture.js';
+import { PARAM_KEYS, STRUCTURED, TOOLS, baseCtx, ctxWith } from './fixture.js';
 
 // 三个新参数：数值 / 枚举 / 结构化，各走一条兜底通道。名字取当前代码里搜不到的。
 const NEW_NUM = 'brand_new_knob';
@@ -102,14 +102,48 @@ describe('加参数：schema 声明即进 body', () => {
 });
 
 describe('go chat 的强类型缺口：只许显式失败，不许静默丢', () => {
-  it('【已知缺口】任何没手工映射过的新参数都会从 go chat 消失（数值也不例外）', () => {
-    // 计划里原本以为只有 object/array 参数丢；实测数值、枚举一样丢 —— go-openai 的
-    // ChatCompletionRequest 没有 map 兜底字段，goChat 只渲染 GO_CHAT_KEYS 里列过的键。
-    // 修好（给 goChat 补渲染）之后把这三条改成 toContain。
+  it('【结构性缺口，不可修】没有对应 struct 字段的键发不出去 —— 但必须在代码里点名', () => {
+    // go-openai 的 ChatCompletionRequest 是封闭 struct：没有 map 兜底，也没有 ExtraBody
+    // （已核对 v1.41.2 的定义）。所以任意新键在 go chat 结构上就是发不出去，这条**修不掉**，
+    // 只能不瞒着。以前是静默消失（示例看着好好的、发出去少参数），现在渲染成一段注释点名。
+    //
+    // 注意断言的是「值没进请求体」而不是「字符串没出现」—— 键名会出现在那段注释里。
     const code = generateCode('chat', 'go', newParamCtx);
-    expect(code, '数值').not.toContain(NEW_NUM);
-    expect(code, '枚举').not.toContain(NEW_ENUM);
-    expect(code, '对象').not.toContain(NEW_OBJ);
+    for (const [label, key] of [['数值', NEW_NUM], ['枚举', NEW_ENUM], ['对象', NEW_OBJ]] as const) {
+      expect(code, `${label}：该键该被点名`).toContain(key);
+      // 点名只许出现在注释行里；出现在 struct 字面量里就是渲染出了编不过的字段。
+      const nonComment = code.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+      expect(nonComment, `${label}：不该出现在请求结构体里`).not.toContain(key);
+    }
+    expect(code).toContain('go-openai 的 ChatCompletionRequest 没有以下字段');
+  });
+
+  it('go-openai 真有对应字段的键，现在都渲染出来了（曾经也一起静默丢）', () => {
+    // 这批以前和上面那些一样从 go chat 消失，但它们是**能修的** —— struct 里有同名字段。
+    const code = generateCode('chat', 'go', ctxWith({
+      tools: TOOLS,
+      toolChoice: { mode: 'tool', name: 'get_weather' },
+      structured: STRUCTURED,
+      objects: { parallel_tool_calls: false },
+      enums: { service_tier: 'priority', verbosity: 'low' },
+      p: { ...baseCtx.p, n: 2, frequency_penalty: 0.5, presence_penalty: 0.3 },
+      paramKeys: [...PARAM_KEYS, 'n', 'frequency_penalty', 'presence_penalty', 'tools',
+        'tool_choice', 'response_format'],
+    }));
+    for (const field of ['FrequencyPenalty', 'PresencePenalty', 'N:', 'Verbosity', 'ServiceTier',
+      'ParallelToolCalls', 'Tools:', 'ToolChoice', 'ResponseFormat']) {
+      expect(code, field).toContain(field);
+    }
+    // 嵌套结构体真的展开了，不是只写了个字段名。
+    expect(code).toContain('openai.FunctionDefinition{');
+    expect(code).toContain('openai.ChatCompletionResponseFormatTypeJSONSchema');
+    // schema JSON 塞在 Go raw string 里，需要 encoding/json —— import 得跟着加。
+    expect(code).toContain('"encoding/json"');
+  });
+
+  it('不需要 json.RawMessage 时不多 import（Go 会因未使用的 import 编译失败）', () => {
+    const code = generateCode('chat', 'go', baseCtx);
+    expect(code).not.toContain('"encoding/json"');
   });
 
   it('buildBody 产出的每个键，goChat 都要认识（加参数忘了管 go 就红）', () => {

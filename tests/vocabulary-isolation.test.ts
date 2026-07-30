@@ -105,6 +105,11 @@ const COLLISION_EXEMPTIONS: { file: string; word: string; why: string }[] = [
     word: 'verbosity',
     why: 'OpenAI chat body 里真有一个叫 verbosity 的字段，这里是 Python SDK 原生 kwargs 白名单（不在名单里的键要塞进 extra_body）。是 wire 事实，与 canon 那个同名能力键无关 —— 本包不知道也不需要知道「这个模型的 verbosity 验没验过」。',
   },
+  {
+    file: 'renderers/go.ts',
+    word: 'verbosity',
+    why: '同上的撞名：go-openai 的 ChatCompletionRequest 有一个 Verbosity 字段，这里是 body 键 → struct 字段名的映射表。判据仍是「这个词有没有出现在发给网关的 body 里」—— verbosity 出现，所以它是 wire 词；reasoning-effort 那种带连字符的能力键不出现，才是 canon 词。',
+  },
 ];
 
 /** 命中的 (文件 → 词) 列表。词按**带引号的字面量**匹配：`reasoning_effort` 是 wire 键，不该误伤。 */

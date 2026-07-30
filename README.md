@@ -82,7 +82,9 @@ Omitting `paramKeys` disables gating entirely (backwards compatibility). Prefer 
 Two lists still need manual upkeep, both covered by tests:
 
 - `PY_OPENAI_NATIVE` — whether a key renders as a native kwarg or lands in `extra_body`. Fail-safe either way: the snippet still runs.
-- `GO_OBJ_FIELDS` — `go-openai` is a typed struct, so an unmapped object/array parameter is **dropped** from the `go` + `chat` cell (the other six languages are fine). `tests/extensibility.test.ts` fails loudly when this happens.
+- `GO_CHAT_KEYS` / `GO_OBJ_FIELDS` — `go-openai`'s `ChatCompletionRequest` is a closed struct: no map fallback, no `ExtraBody` (checked against v1.41.2). So the `go` + `chat` cell is the one place where a body key can fail to reach the wire; the other six languages render whatever `buildBody()` produced.
+
+  Every key that *does* have a struct field is mapped. Anything left over is **named in a comment in the emitted code** rather than silently dropped, so the snippet tells you what it isn't sending and points at `net/http` as the way out. `tests/extensibility.test.ts` asserts both halves — the leftover key appears in a comment and does *not* appear in the request struct — and `scripts/test-codegen-escaping.mjs` runs a real `go build` over the result. When you add a parameter, check whether `go-openai` has a field for it: if yes, map it and add the key here; if no, do nothing and the comment picks it up.
 
 ## One wire-level correction
 

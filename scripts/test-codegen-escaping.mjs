@@ -89,6 +89,43 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     });
   }
 
+  // go chat 是唯一「强类型 struct 逐字段渲染」的单元格：tools / response_format 是嵌套结构体，
+  // schema JSON 塞在 Go raw string（反引号）里 —— 对抗内容里正好有反引号。语法校验挡不住类型
+  // 错误，所以这里直接 go build。缺 go 或拉不到 module（离线）时 skip，不阻塞。
+  if (!has('go')) {
+    skip('go chat compiles', 'no go');
+  } else {
+    let goDir = null;
+    try {
+      goDir = mkdtempSync(join(tmpdir(), 'cg-go-'));
+      execFileSync('go', ['mod', 'init', 'esccheck'], { cwd: goDir, stdio: 'ignore' });
+      execFileSync('go', ['get', 'github.com/sashabaranov/go-openai@latest'], {
+        cwd: goDir, stdio: 'ignore', env: { ...process.env, GOFLAGS: '-mod=mod' },
+      });
+    } catch {
+      goDir = null;
+      skip('go chat compiles', 'go module 拉取失败（离线？）');
+    }
+    if (goDir) {
+      check('go chat compiles（含 tools / response_format 嵌套 struct）', () => {
+        // 用带 tools + structured 的 ctx：不带它们等于没测到新增的那两段渲染。
+        const rich = {
+          ...ctx,
+          // EVIL 进到 schema **内部**：那段 JSON 是嵌进 Go raw string（反引号）的，而 EVIL 里
+          // 正好带一个反引号 —— 不经 goRawSafe 就会当场截断 raw string，编译失败。
+          tools: [{ name: 'evil_tool', description: EVIL, parameters: JSON.stringify({ type: 'object', properties: { q: { type: 'string', description: EVIL } } }) }],
+          structured: { format: 'json_schema', name: 'answer', schema: JSON.stringify({ type: 'object', properties: { a: { type: 'string', description: EVIL } } }) },
+          // tool_choice 走 json.RawMessage（字段类型是 any），工具名里带反引号同样能截断 raw string。
+          toolChoice: { mode: 'tool', name: EVIL },
+          objects: { stop: [EVIL] },
+          paramKeys: [...ctx.paramKeys, 'tools', 'tool_choice', 'response_format', 'stop'],
+        };
+        writeFileSync(join(goDir, 'main.go'), gen.generateCode('chat', 'go', rich));
+        execFileSync('go', ['build', '-o', join(goDir, 'out.bin'), '.'], { cwd: goDir, stdio: 'pipe' });
+      });
+    }
+  }
+
   console.log(`\n结果：${fails ? `${fails} FAIL` : '全部通过'}${skips ? `，${skips} skip` : ''}`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('测试 harness 异常：', e); process.exit(2); });
