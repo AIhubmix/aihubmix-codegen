@@ -37,7 +37,6 @@
     "typecheck": "tsc --noEmit",
     "smoke": "tsup && node scripts/smoke-node.cjs",
     "snapshot": "node scripts/snapshot.mjs",
-    "snapshot:before": "node scripts/snapshot.mjs --src ~/code/playground/src/lib/codegen.ts --alias ~/code/playground/src --out .snapshots/before",
     "snapshot:after": "node scripts/snapshot.mjs --src src/index.ts --out .snapshots/after",
     "snapshot:diff": "diff -r .snapshots/before .snapshots/after && echo '\u96f6\u5b57\u8282\u5dee\u5f02 OK'",
     "verify:codegen": "node scripts/verify-codegen.mjs",
