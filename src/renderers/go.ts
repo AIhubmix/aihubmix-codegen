@@ -13,11 +13,11 @@
  * SDK 惯用写法，那是产品取舍，不在这里替用户做。
  */
 import type { CgMsg, CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../config/placeholders.js';
 import { SDK } from '../config/sdk.js';
 import { esc, goRawSafe, num } from '../emit/escape.js';
 import { jsonLines } from '../emit/literal.js';
-import { authHeaders } from '../wire/auth.js';
+import { authHeaders, headerValueConcat } from '../wire/auth.js';
 import { buildBody, inSchema, isEmptyContainer } from '../wire/body.js';
 import { endpointPath } from '../wire/endpoint.js';
 import { buildMessages } from '../wire/messages.js';
@@ -323,7 +323,8 @@ export function goChat(ctx: CodeGenCtx): string {
         `\t// 网关本身是收这些参数的（同一份 body 用 curl 发得通），这是该 SDK 的限制。\n`
       : '');
 
-  const stdImports = needsJSON ? '\t"context"\n\t"encoding/json"\n\t"fmt"' : '\t"context"\n\t"fmt"';
+  // "os" 固定进 import：key 走 os.Getenv，不出字面量
+  const stdImports = needsJSON ? '\t"context"\n\t"encoding/json"\n\t"fmt"\n\t"os"' : '\t"context"\n\t"fmt"\n\t"os"';
 
   return `package main
 
@@ -334,7 +335,7 @@ ${stdImports}
 )
 
 func main() {
-\tcfg := ${d.clientCtor}("${API_KEY_PLACEHOLDER}")
+\tcfg := ${d.clientCtor}(${ENV_KEY_EXPR.go})
 \tcfg.BaseURL = "${ctx.baseUrl}${d.baseSuffix}"
 \t${d.clientVar} := openai.NewClientWithConfig(cfg)
 ${droppedNote}${seedDecl}
@@ -356,7 +357,7 @@ ${droppedNote}${seedDecl}
 export function goRaw(proto: CodeProto, ctx: CodeGenCtx): string {
   const body = jsonLines(buildBody(proto, ctx), '\t\t');
   const headers = authHeaders(proto)
-    .map((h) => `\treq.Header.Set("${h.name}", "${h.value}")`)
+    .map((h) => `\treq.Header.Set("${h.name}", ${headerValueConcat(h.value, ENV_KEY_EXPR.go)})`)
     .join('\n');
   return `package main
 
@@ -365,6 +366,7 @@ import (
 \t"fmt"
 \t"io"
 \t"net/http"
+\t"os"
 )
 
 func main() {

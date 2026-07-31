@@ -5,7 +5,7 @@
  * gemini 无官方 ruby SDK。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
+import { ENV_KEY_EXPR, RUBY_KEY_INTERP, API_KEY_PLACEHOLDER } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { rubyEsc, rubyStr } from '../emit/escape.js';
 import { jsonLines, rubyParamLines } from '../emit/literal.js';
@@ -14,10 +14,16 @@ import { buildBody } from '../wire/body.js';
 import { endpointPath } from '../wire/endpoint.js';
 import { messagesLiteral, rubyImageNote } from './shared.js';
 
-/** net/http 的 header 写法：request["Name"] = "Value"。 */
+/** net/http 的 header 写法：request["Name"] = "Value"。key 段出 ENV 取值，不出字面量：
+ *  值整个是 key（x-api-key）→ 直接 `= ENV[…]`；key 嵌在字符串里 → 双引号插值 `#{ENV['…']}`。 */
 function rubyHeaders(proto: CodeProto): string {
   return authHeaders(proto)
-    .map((h) => `request["${h.name}"] = "${h.value}"`)
+    .map((h) => {
+      const parts = h.value.split(API_KEY_PLACEHOLDER);
+      if (parts.length === 1) return `request["${h.name}"] = "${h.value}"`;
+      if (parts.every((p) => p === '')) return `request["${h.name}"] = ${ENV_KEY_EXPR.ruby}`;
+      return `request["${h.name}"] = "${parts.join(RUBY_KEY_INTERP)}"`;
+    })
     .join('\n');
 }
 
@@ -33,7 +39,7 @@ function rubyClient(d: SdkDef, baseUrl: string): string {
   return `${d.imports.join('\n')}
 
 ${d.clientVar} = ${d.clientCtor}(
-  access_token: "${API_KEY_PLACEHOLDER}",
+  access_token: ${ENV_KEY_EXPR.ruby},
   uri_base: "${baseUrl}${d.baseSuffix}"
 )`;
 }

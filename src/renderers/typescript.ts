@@ -4,7 +4,7 @@
  * SDK 事实（包名 / 客户端 / 调用 / 取值）全部来自 config/sdk.ts，本文件只管 js 的写法。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { esc } from '../emit/escape.js';
 import { jsLiteral, sdkParamLines } from '../emit/literal.js';
@@ -23,7 +23,7 @@ function tsClient(d: SdkDef, baseUrl: string): string {
   return `${d.imports.join('\n')}
 
 const ${d.clientVar} = ${d.clientCtor}({
-  apiKey: process.env.${API_KEY_PLACEHOLDER},
+  apiKey: ${ENV_KEY_EXPR.javascript},
   baseURL: "${baseUrl}${d.baseSuffix}",
 });`;
 }
@@ -91,7 +91,7 @@ export function tsGemini(ctx: CodeGenCtx): string {
   return `${imageNote(ctx, 'js', 'gemini')}${d.imports.join('\n')}
 
 const ${d.clientVar} = ${d.clientCtor}({
-  apiKey: "${API_KEY_PLACEHOLDER}",
+  apiKey: ${ENV_KEY_EXPR.javascript},
   httpOptions: { baseUrl: "${ctx.baseUrl}${d.baseSuffix}" },
 });
 

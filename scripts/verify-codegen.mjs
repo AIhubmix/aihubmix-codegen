@@ -304,34 +304,30 @@ function srcName(def, proto) {
 async function runCombo(gen, proto, lang, rt) {
   const def = gen.langDef(lang);
   const code = gen.generateCode(proto, lang, makeCtx(rt.paramKeysByProto[proto], rt.paramPropsByProto?.[proto]));
-  // 占位符从包里读（gen.API_KEY_PLACEHOLDER），**不抄一份字面量**：
-  // 抄了之后 config/placeholders.ts 改名，renderer 出新占位符而这里仍替换旧的，
-  // 结果是 7 门语言全部拿不到 key、真跑验证整片鉴权失败，且失败原因指向网关而不是脚本。
-  const withKey = () => code.split(gen.API_KEY_PLACEHOLDER).join(KEY);
+  // 7 门语言的示例现在**全部从环境变量取 key**（os.environ / process.env / os.Getenv /
+  // System.getenv / Environment.GetEnvironmentVariable / ENV / $VAR），所以注入方式只有一种：
+  // 设同名 env，**零字节替换**。变量名从包里读（gen.API_KEY_PLACEHOLDER），不抄一份字面量 ——
+  // 抄了之后 config/placeholders.ts 改名，示例读新变量而这里仍设旧的，7 门语言整片鉴权失败。
+  const keyEnv = { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY };
   const dir = await mkdtemp(join(tmpdir(), `vc-${proto}-${lang}-`));
   try {
     if (lang === 'curl') {
-      // curl 出的是 shell 变量 `$AIHUBMIX_API_KEY`（复制即跑），**不能走 withKey()**：
-      // 那会把 `$AIHUBMIX_API_KEY` 替成 `$sk-...`，bash 再把它当变量名展开成空串，
-      // 结果是整片 401 而原因看着像网关。设同名 env 让脚本自己展开，与 javascript 分支同理。
       const file = join(dir, srcName(def, proto));
       await writeFile(file, code);
-      return classify(await capture('bash', [file], { env: { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
+      return classify(await capture('bash', [file], { env: keyEnv }));
     }
     if (lang === 'python') {
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('python3', [file], {}));
+      await writeFile(file, code);
+      return classify(await capture('python3', [file], { env: keyEnv }));
     }
     if (lang === 'javascript') {
       if (!rt.nodeReady) return { ok: null, note: 'node SDK 未就绪，跳过' };
       // ESM import 不认 NODE_PATH —— 把脚本写进 RUNTIME 目录，node 沿目录上溯解析 RUNTIME/node_modules
       const file = join(RUNTIME, srcName(def, proto));
-      // node 示例读的是 process.env.<占位符>，所以设同名 env 即可，不用替换字节。
-      // 变量名同样从包里取，理由同 withKey()。
       await writeFile(file, code);
       try {
-        return classify(await capture('node', [file], { env: { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
+        return classify(await capture('node', [file], { env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -340,9 +336,9 @@ async function runCombo(gen, proto, lang, rt) {
       if (!rt.go.ok) return { ok: null, note: rt.go.reason || 'go 未就绪，跳过' };
       // 写进 module 目录、按 proto 唯一命名（go run <file> 只编译指定文件，并发安全）
       const file = join(RUNTIME_GO, srcName(def, proto));
-      await writeFile(file, withKey());
+      await writeFile(file, code);
       try {
-        return classify(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000 }));
+        return classify(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000, env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -351,19 +347,19 @@ async function runCombo(gen, proto, lang, rt) {
       if (!rt.javaOk) return { ok: null, note: 'JDK 未安装，跳过' };
       // 单文件源码模式：java Main.java（JDK 11+，零依赖）——文件名必须与 public class 同名
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('java', [file], { timeout: 120000 }));
+      await writeFile(file, code);
+      return classify(await capture('java', [file], { timeout: 120000, env: keyEnv }));
     }
     if (lang === 'csharp') {
       if (!rt.dotnet.ok) return { ok: null, note: 'dotnet SDK 未安装，跳过' };
-      await writeFile(join(dir, srcName(def, proto)), withKey());
+      await writeFile(join(dir, srcName(def, proto)), code);
       await writeFile(join(dir, 'app.csproj'),
         `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType>` +
         `<TargetFramework>${rt.dotnet.tfm}</TargetFramework><ImplicitUsings>enable</ImplicitUsings>` +
         `<Nullable>disable</Nullable></PropertyGroup></Project>`);
       // 抑制 .NET 首次运行欢迎横幅/遥测，否则 banner 会混入输出导致误判。
       const dotnetEnv = {
-        ...process.env,
+        ...keyEnv,
         DOTNET_NOLOGO: '1',
         DOTNET_CLI_TELEMETRY_OPTOUT: '1',
         DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
@@ -376,8 +372,8 @@ async function runCombo(gen, proto, lang, rt) {
       if (proto !== 'messages' && !rt.ruby.gemOk)
         return { ok: null, note: rt.ruby.reason || 'ruby-openai 未就绪，跳过' };
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('ruby', [file], { env: rt.ruby.env }));
+      await writeFile(file, code);
+      return classify(await capture('ruby', [file], { env: { ...rt.ruby.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
     }
     // config/languages.ts 加了语言但这里没加执行分支 —— 显式标出，不静默当 skip 放行。
     return { ok: false, note: `harness 未实现该语言的执行方式：${lang}` };

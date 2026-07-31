@@ -1,7 +1,7 @@
 /**
  * 媒体 TypeScript / JavaScript renderer：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { blockLines } from '../../emit/literal.js';
 import { splitMultipart, type MediaCtx } from '../../wire/media.js';
@@ -31,7 +31,7 @@ ${fileLines}
 
 const response = await fetch("${url}", {
   method: "POST",
-  headers: { "Authorization": "Bearer " + process.env.${API_KEY_PLACEHOLDER} }, // no Content-Type: the browser sets the boundary
+  headers: { "Authorization": "Bearer " + ${ENV_KEY_EXPR.javascript} }, // no Content-Type: the browser sets the boundary
   body: form,
 });
 
@@ -43,7 +43,7 @@ ${tail}`;
 const response = await fetch("${url}", {
   method: "POST",
   headers: {
-    "Authorization": "Bearer " + process.env.${API_KEY_PLACEHOLDER},
+    "Authorization": "Bearer " + ${ENV_KEY_EXPR.javascript},
     "Content-Type": "application/json",
   },
   body: JSON.stringify(${bodyStr}),
@@ -59,7 +59,7 @@ export function mediaVideoTs(ctx: MediaCtx): string {
   return `// Text-to-video (async): submit a job, then poll until it finishes
 const BASE = "${ctx.baseUrl}";
 const headers = {
-  Authorization: "Bearer " + process.env.${API_KEY_PLACEHOLDER},
+  Authorization: "Bearer " + ${ENV_KEY_EXPR.javascript},
   "Content-Type": "application/json",
 };
 

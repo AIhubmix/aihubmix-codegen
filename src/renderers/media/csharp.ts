@@ -1,7 +1,7 @@
 /**
  * 媒体 C# renderer（HttpClient）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -17,7 +17,7 @@ ${note}// Synchronous image generation: POST ${ctx.submitPath} (blocking; return
 // object, results in output[] — each item carries b64_json or content_url. Downloading a
 // content_url needs the same Bearer token and the link expires in about 30 minutes.)
 var client = new HttpClient();
-client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
+client.DefaultRequestHeaders.Add("Authorization", "Bearer " + ${ENV_KEY_EXPR.csharp});
 
 var json = """
 ${bodyStr}
@@ -40,7 +40,7 @@ using System.Text.Json;
 
 // Async video generation: Step 1 submit, Step 2 poll
 var client = new HttpClient();
-client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
+client.DefaultRequestHeaders.Add("Authorization", "Bearer " + ${ENV_KEY_EXPR.csharp});
 var baseUrl = "${ctx.baseUrl}";
 
 // Step 1: submit the generation task

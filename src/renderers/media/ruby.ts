@@ -1,7 +1,7 @@
 /**
  * 媒体 Ruby renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { RUBY_KEY_INTERP } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { jsonLines } from '../../emit/literal.js';
 import { mpNote, type MediaCtx } from '../../wire/media.js';
@@ -21,7 +21,7 @@ http.use_ssl = true
 
 request = Net::HTTP::Post.new(uri)
 request["Content-Type"] = "application/json"
-request["Authorization"] = "Bearer ${API_KEY_PLACEHOLDER}"
+request["Authorization"] = "Bearer ${RUBY_KEY_INTERP}"
 request.body = <<~'JSON'
 ${bodyStr}
 JSON
@@ -45,7 +45,7 @@ require "json"
 
 # Async video generation: Step 1 submit, Step 2 poll until done
 BASE = "${ctx.baseUrl}"
-AUTH = "Bearer ${API_KEY_PLACEHOLDER}"
+AUTH = "Bearer ${RUBY_KEY_INTERP}"
 
 # Step 1: submit the generation task
 uri = URI("#{BASE}${ctx.submitPath}")

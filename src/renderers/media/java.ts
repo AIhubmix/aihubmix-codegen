@@ -1,7 +1,7 @@
 /**
  * 媒体 Java renderer（java.net.http）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { javaTextBlockSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -28,7 +28,7 @@ ${javaTextBlockSafe(bodyStr)}
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("${ctx.baseUrl}${ctx.submitPath}"))
             .header("Content-Type", "application/json")
-            .header("Authorization", "Bearer ${API_KEY_PLACEHOLDER}")
+            .header("Authorization", "Bearer " + ${ENV_KEY_EXPR.java})
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build();
 
@@ -82,7 +82,7 @@ public class Main {
 
     // Async video generation: Step 1 submit, Step 2 poll
     public static void main(String[] args) throws Exception {
-        String apiKey = "${API_KEY_PLACEHOLDER}";
+        String apiKey = ${ENV_KEY_EXPR.java};
         String base = "${ctx.baseUrl}";
         HttpClient client = HttpClient.newHttpClient();
 

@@ -5,7 +5,7 @@
  * 「python 怎么把它写成一行」。骨架留在代码里（见三档划分的反向边界）。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { API_KEY_PLACEHOLDER } from '../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../config/placeholders.js';
 import { SDK, type SdkDef } from '../config/sdk.js';
 import { esc } from '../emit/escape.js';
 import { pyLiteral, sdkParamLines } from '../emit/literal.js';
@@ -20,12 +20,14 @@ function def(proto: CodeProto): SdkDef {
   return d;
 }
 
-/** OpenAI / Anthropic 风格的 python 客户端构造（同为 api_key + base_url 关键字参数）。 */
+/** OpenAI / Anthropic 风格的 python 客户端构造（同为 api_key + base_url 关键字参数）。
+ *  key 从环境变量取（os.environ），所以骨架里固定多一行 `import os`。 */
 function pyClient(d: SdkDef, baseUrl: string): string {
-  return `${d.imports.join('\n')}
+  return `import os
+${d.imports.join('\n')}
 
 ${d.clientVar} = ${d.clientCtor}(
-    api_key="${API_KEY_PLACEHOLDER}",
+    api_key=${ENV_KEY_EXPR.python},
     base_url="${baseUrl}${d.baseSuffix}",
 )`;
 }
@@ -91,10 +93,11 @@ export function pyGemini(ctx: CodeGenCtx): string {
   const { contents, config } = geminiSdkCall(buildBody('gemini', ctx), true);
   const cfgLine = Object.keys(config).length ? `\n    config=${pyLiteral(config, '    ')},` : '';
   // google-genai 的 base URL 走 http_options 字典，构造形状与 OpenAI/Anthropic 不同，故不复用 pyClient。
-  return `${imageNote(ctx, 'python', 'gemini')}${d.imports.join('\n')}
+  return `${imageNote(ctx, 'python', 'gemini')}import os
+${d.imports.join('\n')}
 
 ${d.clientVar} = ${d.clientCtor}(
-    api_key="${API_KEY_PLACEHOLDER}",
+    api_key=${ENV_KEY_EXPR.python},
     http_options={"base_url": "${ctx.baseUrl}${d.baseSuffix}"},
 )
 

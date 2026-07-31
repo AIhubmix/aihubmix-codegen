@@ -1,7 +1,7 @@
 /**
  * 媒体 Go renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { goRawSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -18,6 +18,7 @@ import (
 \t"fmt"
 \t"io"
 \t"net/http"
+\t"os"
 )
 
 func main() {
@@ -29,7 +30,7 @@ ${goRawSafe(bodyStr)}
 \t\`)
 \treq, _ := http.NewRequest("POST", "${ctx.baseUrl}${ctx.submitPath}", bytes.NewBuffer(payload))
 \treq.Header.Set("Content-Type", "application/json")
-\treq.Header.Set("Authorization", "Bearer ${API_KEY_PLACEHOLDER}")
+\treq.Header.Set("Authorization", "Bearer "+${ENV_KEY_EXPR.go})
 
 \tresp, err := http.DefaultClient.Do(req)
 \tif err != nil {
@@ -53,13 +54,14 @@ import (
 \t"fmt"
 \t"io"
 \t"net/http"
+\t"os"
 \t"time"
 )
 
 func main() {
 \t// Async video generation: Step 1 submit, Step 2 poll
 \tbase := "${ctx.baseUrl}"
-\tapiKey := "${API_KEY_PLACEHOLDER}"
+\tapiKey := ${ENV_KEY_EXPR.go}
 
 \t// Step 1: submit the generation task
 \tpayload := []byte(\`
