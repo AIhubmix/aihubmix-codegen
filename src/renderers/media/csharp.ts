@@ -13,8 +13,9 @@ export function mediaImageCs(ctx: MediaCtx): string {
   return `using System.Net.Http;
 using System.Text;
 
-${note}// 同步文生图：POST ${ctx.submitPath}（阻塞返回统一任务对象，结果在 output[]，
-// 每项含 b64_json 或 content_url；content_url 下载需带同一 Bearer，约 30 分钟过期）
+${note}// Synchronous image generation: POST ${ctx.submitPath} (blocking; returns the unified task
+// object, results in output[] — each item carries b64_json or content_url. Downloading a
+// content_url needs the same Bearer token and the link expires in about 30 minutes.)
 var client = new HttpClient();
 client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
 
@@ -37,12 +38,12 @@ export function mediaVideoCs(ctx: MediaCtx): string {
 using System.Text;
 using System.Text.Json;
 
-// 异步文生视频：Step 1 提交，Step 2 轮询
+// Async video generation: Step 1 submit, Step 2 poll
 var client = new HttpClient();
 client.DefaultRequestHeaders.Add("Authorization", "Bearer ${API_KEY_PLACEHOLDER}");
 var baseUrl = "${ctx.baseUrl}";
 
-// Step 1：提交视频生成任务
+// Step 1: submit the generation task
 var json = """
 ${bodyStr}
 """;
@@ -51,22 +52,22 @@ var submitResp = await client.PostAsync($"{baseUrl}${ctx.submitPath}", content);
 var submitBody = await submitResp.Content.ReadAsStringAsync();
 var submitDoc = JsonDocument.Parse(submitBody);
 var videoId = submitDoc.RootElement.GetProperty("id").GetString();
-Console.WriteLine($"任务已提交，videoId: {videoId}");
+Console.WriteLine($"Submitted, videoId: {videoId}");
 
-// Step 2：轮询任务状态（终态 completed / failed / cancelled）
+// Step 2: poll until a terminal status (completed / failed / cancelled)
 while (true) {
     await Task.Delay(5000);
     var pollResp = await client.GetAsync($"{baseUrl}${pollPath}");
     var pollBody = await pollResp.Content.ReadAsStringAsync();
     var doc = JsonDocument.Parse(pollBody);
     var status = doc.RootElement.GetProperty("status").GetString();
-    Console.WriteLine($"状态: {status}");
+    Console.WriteLine($"status: {status}");
     if (status is "completed") {
-        // 结果在 output[0].content_url，下载需带同一 Bearer（约 30 分钟过期）
+        // Result is in output[0].content_url — downloading needs the same Bearer (expires in ~30 min)
         var url = doc.RootElement.GetProperty("output")[0].GetProperty("content_url").GetString();
-        Console.WriteLine("生成完成，下载地址（需带 Bearer）：" + url);
+        Console.WriteLine("Done. Download URL (send the same Bearer): " + url);
         break;
     }
-    if (status is "failed" or "cancelled") { Console.WriteLine("任务结束：" + status); break; }
+    if (status is "failed" or "cancelled") { Console.WriteLine("Task ended: " + status); break; }
 }`;
 }

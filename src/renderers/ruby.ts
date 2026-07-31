@@ -76,7 +76,7 @@ ${stream ? '' : `\n${d.read}`}`;
 export function rubyMessages(ctx: CodeGenCtx): string {
   const body = jsonLines(buildBody('messages', ctx), '');
   const headers = rubyHeaders('messages');
-  return `# ruby-anthropic gem 不支持自定义 base URL，故 messages 协议用原生 net/http 指向网关。
+  return `# The ruby-anthropic gem cannot point at a custom base URL, so the messages protocol uses net/http directly.
 require "net/http"
 require "uri"
 

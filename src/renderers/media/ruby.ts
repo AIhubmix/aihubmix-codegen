@@ -14,7 +14,7 @@ export function mediaImageRuby(ctx: MediaCtx): string {
 require "uri"
 require "json"
 
-${note}# 同步文生图：POST ${ctx.submitPath}（阻塞返回统一任务对象）
+${note}# Synchronous image generation: POST ${ctx.submitPath} (blocking; returns the unified task object)
 uri = URI("${ctx.baseUrl}${ctx.submitPath}")
 http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = true
@@ -28,8 +28,8 @@ JSON
 
 response = http.request(request)
 data = JSON.parse(response.body)
-# 结果在 data["output"] 列表，每项含 b64_json 或 content_url
-# （content_url 下载需带同一 Bearer，约 30 分钟过期）
+# Results are in data["output"] — each item carries b64_json or content_url
+# (downloading a content_url needs the same Bearer; the link expires in about 30 minutes)
 (data["output"] || []).each do |item|
   puts item["content_url"] || (item["b64_json"] || "")[0, 80]
 end`;
@@ -43,11 +43,11 @@ export function mediaVideoRuby(ctx: MediaCtx): string {
 require "uri"
 require "json"
 
-# 异步文生视频：Step 1 提交任务，Step 2 轮询直至完成
+# Async video generation: Step 1 submit, Step 2 poll until done
 BASE = "${ctx.baseUrl}"
 AUTH = "Bearer ${API_KEY_PLACEHOLDER}"
 
-# Step 1：提交视频生成任务
+# Step 1: submit the generation task
 uri = URI("#{BASE}${ctx.submitPath}")
 http = Net::HTTP.new(uri.host, uri.port)
 http.use_ssl = true
@@ -58,9 +58,9 @@ submit.body = <<~'JSON'
 ${bodyStr}
 JSON
 video_id = JSON.parse(http.request(submit).body)["id"]
-puts "任务已提交，video_id: #{video_id}"
+puts "Submitted, video_id: #{video_id}"
 
-# Step 2：轮询任务状态直至终态 completed / failed / cancelled
+# Step 2: poll until a terminal status (completed / failed / cancelled)
 loop do
   sleep 5
   poll_uri = URI("#{BASE}${pollPath}")
@@ -68,14 +68,14 @@ loop do
   poll["Authorization"] = AUTH
   result = JSON.parse(Net::HTTP.start(poll_uri.host, poll_uri.port, use_ssl: true) { |h| h.request(poll) }.body)
   status = result["status"]
-  puts "状态: #{status}"
+  puts "status: #{status}"
   if status == "completed"
-    # 结果在 output[0]["content_url"]，下载需带同一 Bearer（约 30 分钟过期）
-    puts "生成完成，下载地址（需带 Bearer）：#{result.dig("output", 0, "content_url")}"
+    # Result is in output[0]["content_url"] — downloading needs the same Bearer (expires in ~30 min)
+    puts "Done. Download URL (send the same Bearer): #{result.dig("output", 0, "content_url")}"
     break
   end
   if %w[failed cancelled].include?(status)
-    puts "任务结束 (#{status})"
+    puts "Task ended (#{status})"
     break
   end
 end`;

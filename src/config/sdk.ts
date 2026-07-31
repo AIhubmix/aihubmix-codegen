@@ -63,7 +63,7 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       resultVar: 'message',
       // 不能写 content[0]：Claude 系默认开思考，content 里第一块常常是 thinking，
       // 取 [0].text 会 AttributeError（实测 claude-opus-5 五次里挂三次）。
-      read: '# content 里可能先有 thinking 块，回复文本按类型挑，别按下标取\nprint(next(b.text for b in message.content if b.type == "text"))',
+      read: '# content may start with a thinking block — pick by type, not by index\nprint(next(b.text for b in message.content if b.type == "text"))',
       readStream: 'with message as stream:\n    for text in stream.text_stream:\n        print(text, end="")',
     },
     responses: {
@@ -111,7 +111,7 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       call: 'client.messages.create',
       resultVar: 'message',
       // 同 python：content[0] 可能是 thinking 块，见下方 python messages 的注释。
-      read: '// content 里可能先有 thinking 块，回复文本按类型挑，别按下标取\nconsole.log(message.content.find((b) => b.type === "text")?.text);',
+      read: '// content may start with a thinking block — pick by type, not by index\nconsole.log(message.content.find((b) => b.type === "text")?.text);',
       readStream:
         'for await (const event of message) {\n  if (event.type === "content_block_delta") process.stdout.write(event.delta.text ?? "");\n}',
     },
@@ -160,7 +160,7 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       baseSuffix: '',
       call: 'client.responses.create',
       resultVar: 'response',
-      read: '# output[0] 可能是 reasoning，回复文本通常在最后一个 output 块\nputs response.dig("output", -1, "content", 0, "text")',
+      read: '# output[0] may be reasoning — the reply text is usually in the last output block\nputs response.dig("output", -1, "content", 0, "text")',
       streamParam: 'stream: proc { |chunk, _event| print chunk.dig("delta") },',
     },
   },

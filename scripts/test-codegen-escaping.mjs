@@ -138,6 +138,69 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     }
   }
 
+  // ── 媒体侧（generateMediaCode）────────────────────────────────────
+  // 上面那批只测 generateCode（LLM 半边）。媒体半边一条覆盖都没有 —— mediaVideoJava 里
+  // `contains("\"completed\"")` 在 JS 模板字符串里塌成 `contains(""completed"")`（编译不过）
+  // 就是这么溜出去的：测试不覆盖、生成物没人拿去编译。
+  const mediaCtx = (modality, lang) => ({ modality, modelId: 'sora-2', prompt: EVIL, params: { seconds: 8 }, lang });
+  /** 剥掉 body 文本块：里面是 EVIL prompt 带来的数据，反斜杠/引号本就该有，单独验合法 JSON。 */
+  const javaCodeOnly = (c) => c.replace(/String body = """\n[\s\S]*?\n\s*""";/, '');
+
+  for (const modality of ['image', 'video']) {
+    check(`java media-${modality} body 解转义后合法 JSON`, () => {
+      const c = gen.generateMediaCode(mediaCtx(modality, 'java'));
+      const m = c.match(/String body = """\n([\s\S]*?)\n\s*""";/);
+      if (!m) throw new Error('未找到 Java 文本块');
+      JSON.parse(m[1].replace(/\\\\/g, '\\').replace(/^\s+/gm, ''));
+    });
+
+    // 红线：Java 产物的**代码部分**不许出现反斜杠。
+    // 生成 Java 的模板本身是 JS 模板字符串，写 `\"` 会在 JS 这一层就被吃掉一层，
+    // 想发出 Java 的 `\"` 得写 `\\"`、想发出正则 `\s` 得写 `\\\\s` —— 这种双层转义
+    // 人眼几乎校不出来。所以干脆立规矩：Java 侧用 `String.valueOf('"')`（Java 字符
+    // 字面量里的引号无需转义）和 ` *` 拼，一个反斜杠都不写。
+    // 例外只有 body 文本块：EVIL prompt 里本来就带反斜杠，那是数据不是代码，上面单独验。
+    check(`java media-${modality} 代码部分无反斜杠`, () => {
+      const c = gen.generateMediaCode(mediaCtx(modality, 'java'));
+      const bad = javaCodeOnly(c).split('\n').filter((l) => l.includes('\\'));
+      if (bad.length) throw new Error(`出现反斜杠(双层转义陷阱)：${bad.join(' | ')}`);
+    });
+
+    // 上面那条是**预防**，这条是**检测**，两条覆盖塌陷的两半：
+    //   · `\\s` 塌成 `\s`（反斜杠还在一个）→ 上面那条抓；
+    //   · `\"`  塌成 `"`（反斜杠没了）→ 上面那条抓不到，得靠这条。
+    // `contains("\"completed\"")` 塌成 `contains(""completed"")`，指纹是 `""` **紧贴单词字符**。
+    // 单纯的 `""`（空字符串字面量，如 `field()` 匹配不到时的返回值）是合法的，不能一刀切。
+    check(`java media-${modality} 无紧贴单词的双引号对（转义塌陷指纹）`, () => {
+      const c = gen.generateMediaCode(mediaCtx(modality, 'java'));
+      const bad = javaCodeOnly(c).split('\n').filter((l) => /\w""|""\w/.test(l));
+      if (bad.length) throw new Error(`出现 ""：多半是 \\" 在 JS 模板里塌了一层：${bad.join(' | ')}`);
+    });
+  }
+
+  // 轮询终态判断要读 status 字段，不能拿整个响应体做子串匹配 ——
+  // prompt 或 error 文案里出现 "completed" 就会让循环提前跳出。其它 5 门语言都是读字段。
+  check('java media-video 按 status 字段判终态，不用 contains 扫全文', () => {
+    const c = gen.generateMediaCode(mediaCtx('video', 'java'));
+    if (/pollBody\.contains\(/.test(c)) throw new Error('还在用 contains 扫全文');
+    if (!/status\.equals\("completed"\)/.test(c)) throw new Error('未按 status 字段判 completed');
+  });
+
+  // 其余语言的媒体产物同样过一遍真语法校验（此前也没跑过）
+  for (const modality of ['image', 'video']) {
+    if (!pyOk) { skip(`python media-${modality}`, 'no python3'); }
+    else check(`python media-${modality} compiles`, () => {
+      const f = join(d, `m-${modality}.py`); writeFileSync(f, gen.generateMediaCode(mediaCtx(modality, 'python')));
+      execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+    });
+
+    if (!rbOk) { skip(`ruby media-${modality}`, 'no ruby'); }
+    else check(`ruby media-${modality} syntax`, () => {
+      const f = join(d, `m-${modality}.rb`); writeFileSync(f, gen.generateMediaCode(mediaCtx(modality, 'ruby')));
+      execFileSync('ruby', ['-c', f], { stdio: 'ignore' });
+    });
+  }
+
   console.log(`\n结果：${fails ? `${fails} FAIL` : '全部通过'}${skips ? `，${skips} skip` : ''}`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('测试 harness 异常：', e); process.exit(2); });
