@@ -1,7 +1,7 @@
 {
   "name": "@aihubmix/codegen",
   "version": "0.1.0",
-  "description": "Pure, isomorphic request/code generator for the AIHubMix gateway: 4 protocols x 7 languages. One wire body feeds both the generated snippet and the real request. No transport, no DOM \u2014 capabilities and base URL are injected.",
+  "description": "Pure, isomorphic request/code generator for the AIHubMix gateway: 4 protocols x 7 languages. One wire body feeds both the generated snippet and the real request. No transport, no DOM — capabilities and base URL are injected.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -38,7 +38,7 @@
     "smoke": "tsup && node scripts/smoke-node.cjs",
     "snapshot": "node scripts/snapshot.mjs",
     "snapshot:after": "node scripts/snapshot.mjs --src src/index.ts --out .snapshots/after",
-    "snapshot:diff": "diff -r .snapshots/before .snapshots/after && echo '\u96f6\u5b57\u8282\u5dee\u5f02 OK'",
+    "snapshot:diff": "diff -r .snapshots/before .snapshots/after && echo '零字节差异 OK'",
     "verify:codegen": "node scripts/verify-codegen.mjs",
     "test:codegen-escaping": "node scripts/test-codegen-escaping.mjs",
     "test:verify-classify": "node scripts/test-verify-classify.mjs",
@@ -47,9 +47,9 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "esbuild": "^0.24.0",
+    "esbuild": "^0.28.1",
     "tsup": "^8.3.5",
     "typescript": "^5.6.3",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.7"
   }
 }
