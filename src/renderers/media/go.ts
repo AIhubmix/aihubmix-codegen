@@ -30,7 +30,7 @@ ${goRawSafe(bodyStr)}
 \t\`)
 \treq, _ := http.NewRequest("POST", "${ctx.baseUrl}${ctx.submitPath}", bytes.NewBuffer(payload))
 \treq.Header.Set("Content-Type", "application/json")
-\treq.Header.Set("Authorization", "Bearer "+${ENV_KEY_EXPR.go})
+\treq.Header.Set("Authorization", "Bearer " + ${ENV_KEY_EXPR.go})
 
 \tresp, err := http.DefaultClient.Do(req)
 \tif err != nil {
