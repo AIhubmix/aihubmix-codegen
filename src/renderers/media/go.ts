@@ -1,7 +1,7 @@
 /**
  * 媒体 Go renderer（net/http 原始请求）：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { goRawSafe } from '../../emit/escape.js';
 import { jsonLines } from '../../emit/literal.js';
@@ -18,17 +18,19 @@ import (
 \t"fmt"
 \t"io"
 \t"net/http"
+\t"os"
 )
 
 func main() {
-${note}\t// 同步文生图：POST ${ctx.submitPath}（阻塞返回统一任务对象，结果在 output[]，
-\t// 每项含 b64_json 或 content_url；content_url 下载需带同一 Bearer，约 30 分钟过期）
+${note}\t// Synchronous image generation: POST ${ctx.submitPath} (blocking; returns the unified task
+\t// object, results in output[] — each item carries b64_json or content_url. Downloading a
+\t// content_url needs the same Bearer token and the link expires in about 30 minutes.)
 \tpayload := []byte(\`
 ${goRawSafe(bodyStr)}
 \t\`)
 \treq, _ := http.NewRequest("POST", "${ctx.baseUrl}${ctx.submitPath}", bytes.NewBuffer(payload))
 \treq.Header.Set("Content-Type", "application/json")
-\treq.Header.Set("Authorization", "Bearer ${API_KEY_PLACEHOLDER}")
+\treq.Header.Set("Authorization", "Bearer " + ${ENV_KEY_EXPR.go})
 
 \tresp, err := http.DefaultClient.Do(req)
 \tif err != nil {
@@ -52,15 +54,16 @@ import (
 \t"fmt"
 \t"io"
 \t"net/http"
+\t"os"
 \t"time"
 )
 
 func main() {
-\t// 异步文生视频：Step 1 提交，Step 2 轮询
+\t// Async video generation: Step 1 submit, Step 2 poll
 \tbase := "${ctx.baseUrl}"
-\tapiKey := "${API_KEY_PLACEHOLDER}"
+\tapiKey := ${ENV_KEY_EXPR.go}
 
-\t// Step 1：提交视频生成任务
+\t// Step 1: submit the generation task
 \tpayload := []byte(\`
 ${goRawSafe(bodyStr)}
 \t\`)
@@ -76,9 +79,9 @@ ${goRawSafe(bodyStr)}
 
 \tvar submit struct{ ID string \`json:"id"\` }
 \tjson.NewDecoder(resp.Body).Decode(&submit)
-\tfmt.Println("任务已提交，videoId:", submit.ID)
+\tfmt.Println("Submitted, videoId:", submit.ID)
 
-\t// Step 2：轮询任务状态（终态 completed / failed / cancelled）
+\t// Step 2: poll until a terminal status (completed / failed / cancelled)
 \tfor {
 \t\ttime.Sleep(5 * time.Second)
 \t\tpollReq, _ := http.NewRequest("GET", base+"${pollPath}", nil)
@@ -90,18 +93,18 @@ ${goRawSafe(bodyStr)}
 \t\tvar result map[string]interface{}
 \t\tjson.Unmarshal(body, &result)
 \t\tstatus, _ := result["status"].(string)
-\t\tfmt.Println("状态:", status)
+\t\tfmt.Println("status:", status)
 \t\tif status == "completed" {
-\t\t\t// 结果在 output[0].content_url，下载需带同一 Bearer（约 30 分钟过期）
+\t\t\t// Result is in output[0].content_url — downloading needs the same Bearer (expires in ~30 min)
 \t\t\tif outs, ok := result["output"].([]interface{}); ok && len(outs) > 0 {
 \t\t\t\tif item, ok := outs[0].(map[string]interface{}); ok {
-\t\t\t\t\tfmt.Println("生成完成，下载地址（需带 Bearer）：", item["content_url"])
+\t\t\t\t\tfmt.Println("Done. Download URL (send the same Bearer):", item["content_url"])
 \t\t\t\t}
 \t\t\t}
 \t\t\tbreak
 \t\t}
 \t\tif status == "failed" || status == "cancelled" {
-\t\t\tfmt.Println("任务结束（失败）：", result["error"])
+\t\t\tfmt.Println("Task ended:", status, result["error"])
 \t\t\tbreak
 \t\t}
 \t}

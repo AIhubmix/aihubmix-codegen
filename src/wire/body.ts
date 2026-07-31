@@ -15,12 +15,14 @@ import { buildMessages } from './messages.js';
 // 门控小工具住 gate.ts（body 与 capabilities 都要用，分文件避免成环），这里转出保持既有 import 路径。
 export { inSchema, isEmptyContainer };
 
-/** 把配置的 enum/字符串参数写进 body（取值非空且 ≠ schema 默认才发）。 */
+/** 把配置的 enum/字符串参数写进 body（schema 声明、取值非空且 ≠ schema 默认才发）。 */
 function emitEnums(b: Record<string, unknown>, ctx: CodeGenCtx): void {
   const { enums, enumDefaults } = ctx;
   if (!enums) return;
   for (const [k, v] of Object.entries(enums)) {
+    if (CAP_GATED_WIRE_KEYS.has(k)) continue; // 能力接管的字段，由对应能力门控块下发
     if (v === undefined || v === null || v === '') continue;
+    if (!inSchema(ctx, k)) continue; // 当前协议 schema 未声明的键不发（与 emitObjects/emitExtraNumbers 一致）
     if (enumDefaults && enumDefaults[k] === v) continue; // 等于默认不发
     b[k] = v;
   }
@@ -52,6 +54,31 @@ function emitExtraNumbers(b: Record<string, unknown>, ctx: CodeGenCtx, proto: Co
     // OpenAI chat：用 top_logprobs 必须同时 logprobs:true。仅 chat 协议加——responses 用 include、messages 无此参数。
     if (k === 'top_logprobs' && proto === 'chat') b.logprobs = true;
   }
+}
+
+/**
+ * Anthropic 硬约束：开了 extended thinking 时 `max_tokens` 必须 **严格大于**
+ * `thinking.budget_tokens`，否则请求直接 400（不是降级，是拒绝）。
+ *
+ * 为什么住这儿：这条以前写在能力注入层的 put 里，意味着**只有代码示例被保护、真实请求不被
+ * 保护** —— playground 的参数面板可以同时把 budget 调到 8192、max_tokens 留在 1024，那一发
+ * 就是 400，而 Get Code 出的示例却是好的。同一个不变量在两条路径上行为不同，本身就是 bug。
+ * 沉到 buildBody 之后两边同源（包不变量：一切经 buildBody）。
+ *
+ * 抬到 `budget + 1024` 而不是 `budget + 1`：约束只要求大于，但 max_tokens 是**含思考在内**的
+ * 总预算，只留 1 个 token 意味着思考完就没额度写答案了，请求能过、结果是空的。1024 与
+ * Anthropic 自己的 budget 下限同一个数量级，留给可见答案。
+ *
+ * 只在 messages 协议调用 —— chat/responses/gemini 的思考档位不是数值预算，没有这条约束。
+ */
+function enforceThinkingBudget(b: Record<string, unknown>): void {
+  const thinking = b.thinking;
+  if (!thinking || typeof thinking !== 'object' || Array.isArray(thinking)) return;
+  const budget = (thinking as Record<string, unknown>).budget_tokens;
+  if (typeof budget !== 'number' || !Number.isFinite(budget)) return;
+  const max = b.max_tokens;
+  if (typeof max === 'number' && max > budget) return;
+  b.max_tokens = budget + 1024;
 }
 
 export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unknown> {
@@ -92,6 +119,7 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitObjects(b, ctx);
     emitExtraNumbers(b, ctx, proto);
     emitCapabilities(b, ctx, proto);
+    enforceThinkingBudget(b);
     b.stream = stream;
     return b;
   }

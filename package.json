@@ -16,9 +16,14 @@
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
     }
   },
   "sideEffects": false,
@@ -36,7 +41,10 @@
     "snapshot:after": "node scripts/snapshot.mjs --src src/index.ts --out .snapshots/after",
     "snapshot:diff": "diff -r .snapshots/before .snapshots/after && echo '\u96f6\u5b57\u8282\u5dee\u5f02 OK'",
     "verify:codegen": "node scripts/verify-codegen.mjs",
-    "test:codegen-escaping": "node scripts/test-codegen-escaping.mjs"
+    "test:codegen-escaping": "node scripts/test-codegen-escaping.mjs",
+    "test:verify-classify": "node scripts/test-verify-classify.mjs",
+    "test:cjs-types": "node scripts/test-cjs-types.mjs",
+    "test:all": "pnpm typecheck && pnpm test && pnpm test:verify-classify && pnpm test:codegen-escaping && pnpm test:cjs-types"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

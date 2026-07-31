@@ -1,7 +1,7 @@
 /**
  * 媒体 Python renderer：图（同步单段）/ 视频（提交 + 轮询）。
  */
-import { API_KEY_PLACEHOLDER } from '../../config/placeholders.js';
+import { ENV_KEY_EXPR } from '../../config/placeholders.js';
 import { VID_PATH_DEFAULT } from '../../config/media.js';
 import { pyLiteral } from '../../emit/literal.js';
 import { splitMultipart, type MediaCtx } from '../../wire/media.js';
@@ -15,7 +15,7 @@ data = response.json()  # { id, status: "completed", output: [...], error }
 # content_url downloads need the same Bearer key and expire in ~30 minutes.
 for item in data.get("output", []):
     if item.get("content_url"):
-        img = requests.get(item["content_url"], headers={"Authorization": "Bearer ${API_KEY_PLACEHOLDER}"})
+        img = requests.get(item["content_url"], headers={"Authorization": "Bearer " + ${ENV_KEY_EXPR.python}})
         with open(f"image_{item.get('index', 0)}.png", "wb") as f:
             f.write(img.content)
         print("saved:", f.name)
@@ -28,11 +28,12 @@ for item in data.get("output", []):
     const filesStr = files.length
       ? files.map((k) => `    "${k}": open("${k}.png", "rb"),`).join('\n')
       : '';
-    return `import requests
+    return `import os
+import requests
 
 # Image edit (multipart/form-data): POST ${ctx.submitPath} — binary source image upload
 url = "${url}"
-headers = {"Authorization": "Bearer ${API_KEY_PLACEHOLDER}"}  # no Content-Type: requests sets the multipart boundary
+headers = {"Authorization": "Bearer " + ${ENV_KEY_EXPR.python}}  # no Content-Type: requests sets the multipart boundary
 data = ${dataStr}
 files = {
 ${filesStr}
@@ -43,12 +44,13 @@ response.raise_for_status()${tail}`;
   }
 
   const bodyStr = pyLiteral(ctx.bodyObj, '    ');
-  return `import requests
+  return `import os
+import requests
 
 # Text-to-image (sync): POST ${ctx.submitPath} — blocks until done, returns a task object
 url = "${url}"
 headers = {
-    "Authorization": "Bearer ${API_KEY_PLACEHOLDER}",
+    "Authorization": "Bearer " + ${ENV_KEY_EXPR.python},
     "Content-Type": "application/json",
 }
 payload = ${bodyStr}
@@ -73,13 +75,14 @@ for item in data.get("output", []):
 export function mediaVideoPy(ctx: MediaCtx): string {
   const bodyStr = pyLiteral(ctx.bodyObj, '    ');
   const pollPath = ctx.pollPath || `${VID_PATH_DEFAULT}/{video_id}`;
-  return `import time
+  return `import os
+import time
 import requests
 
 # Text-to-video (async): submit a job, then poll until it finishes
 BASE = "${ctx.baseUrl}"
 headers = {
-    "Authorization": "Bearer ${API_KEY_PLACEHOLDER}",
+    "Authorization": "Bearer " + ${ENV_KEY_EXPR.python},
     "Content-Type": "application/json",
 }
 
@@ -93,7 +96,7 @@ print(f"Job submitted, video_id: {video_id}")
 # Step 2: poll the job status until a terminal state (completed / failed / cancelled)
 poll_url = f"{BASE}${pollPath.replace(/\{id\}/g, '{video_id}')}"
 while True:
-    poll = requests.get(poll_url, headers={"Authorization": "Bearer ${API_KEY_PLACEHOLDER}"})
+    poll = requests.get(poll_url, headers={"Authorization": headers["Authorization"]})
     poll.raise_for_status()
     result = poll.json()  # task object: { id, status, output: [...], error }
     status = result.get("status", "")
@@ -101,7 +104,7 @@ while True:
     if status == "completed":
         # Step 3: download output[].content_url (Bearer required; expires in ~30 minutes)
         content_url = result["output"][0]["content_url"]
-        video = requests.get(content_url, headers={"Authorization": "Bearer ${API_KEY_PLACEHOLDER}"})
+        video = requests.get(content_url, headers={"Authorization": headers["Authorization"]})
         with open("video.mp4", "wb") as f:
             f.write(video.content)
         print("saved: video.mp4")

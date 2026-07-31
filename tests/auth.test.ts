@@ -95,4 +95,16 @@ describe('产物里的鉴权头（renderer 没抄漏）', () => {
     expect(code).toContain('openai.NewClientWithConfig');
     expect(code).not.toContain('req.Header.Set');
   });
+
+  it('curl 出 shell 变量而不是 key 字面量（复制即跑，别把真 key 打进 shell 历史）', () => {
+    // curl 是唯一「粘进终端就发出去」的语言。出字面量意味着用户要么先手改一处，
+    // 要么把 key 直接敲进命令行。媒体 curl 一直是 $VAR 形态，这里对齐。
+    for (const proto of ['chat', 'messages', 'responses', 'gemini'] as const) {
+      const code = generateCode(proto, 'curl', baseCtx);
+      expect(code, proto).toContain(`$${API_KEY_PLACEHOLDER}`);
+      // 反面：不许有裸占位符（前面不带 $ 的那种）。去掉所有 `$占位符` 之后就不该再出现它。
+      expect(code.split(`$${API_KEY_PLACEHOLDER}`).join(''), proto)
+        .not.toContain(API_KEY_PLACEHOLDER);
+    }
+  });
 });

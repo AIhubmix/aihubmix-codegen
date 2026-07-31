@@ -75,6 +75,8 @@ const isMain = !!process.argv[1] && (() => {
   catch { return false; }
 })();
 
+// 注意：这是**验证器自己**的凭证来源（本机 shell 里的环境变量），与生成代码里的 key 占位符
+// 是两回事 —— 后者是 gen.API_KEY_PLACEHOLDER，见 runCombo()。同名纯属就手，别把两者合并。
 const KEY = process.env.VERIFY_API_KEY || process.env.AIHUBMIX_API_KEY;
 if (isMain && !KEY) {
   console.error('✗ 需要环境变量 VERIFY_API_KEY（或 AIHUBMIX_API_KEY，真实打网关用）。');
@@ -83,9 +85,17 @@ if (isMain && !KEY) {
 }
 
 // --base：既是取 schema 的地址，也是**注入进 ctx.baseUrl 的地址**。
-// 原先脚本是 `code.replaceAll('https://aihubmix.com', BASE_OVERRIDE)` 后处理换域，意味着
+// 原先脚本是 `code.replaceAll(<域名>, BASE_OVERRIDE)` 后处理换域，意味着
 // 「被验证的字节 ≠ 用户拿到的字节」；baseUrl 变必填之后直接传进 ctx，验的就是真产物。
-const BASE = argVal('--base') || 'https://aihubmix.com';
+//
+// **必填、脚本内不留默认域**：默认域会和 workflow 的 base 白名单形成第二份真源，
+// 两边漂了就会「用 A 域的 key 打 B 域」。域名只在 workflow 的白名单里出现一次。
+const BASE = argVal('--base');
+if (isMain && !BASE) {
+  console.error('✗ 需要 --base <网关根地址>（如 --base https://example.gateway）。');
+  console.error('  脚本不带默认域：它会被直接注入 ctx.baseUrl，必须与 VERIFY_API_KEY 匹配。');
+  process.exit(2);
+}
 
 const PROMPT = 'Reply with exactly: ok';
 
@@ -294,26 +304,30 @@ function srcName(def, proto) {
 async function runCombo(gen, proto, lang, rt) {
   const def = gen.langDef(lang);
   const code = gen.generateCode(proto, lang, makeCtx(rt.paramKeysByProto[proto], rt.paramPropsByProto?.[proto]));
-  const withKey = () => code.replace(/AIHUBMIX_API_KEY/g, KEY);
+  // 7 门语言的示例现在**全部从环境变量取 key**（os.environ / process.env / os.Getenv /
+  // System.getenv / Environment.GetEnvironmentVariable / ENV / $VAR），所以注入方式只有一种：
+  // 设同名 env，**零字节替换**。变量名从包里读（gen.API_KEY_PLACEHOLDER），不抄一份字面量 ——
+  // 抄了之后 config/placeholders.ts 改名，示例读新变量而这里仍设旧的，7 门语言整片鉴权失败。
+  const keyEnv = { ...process.env, [gen.API_KEY_PLACEHOLDER]: KEY };
   const dir = await mkdtemp(join(tmpdir(), `vc-${proto}-${lang}-`));
   try {
     if (lang === 'curl') {
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('bash', [file], {}));
+      await writeFile(file, code);
+      return classify(await capture('bash', [file], { env: keyEnv }));
     }
     if (lang === 'python') {
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('python3', [file], {}));
+      await writeFile(file, code);
+      return classify(await capture('python3', [file], { env: keyEnv }));
     }
     if (lang === 'javascript') {
       if (!rt.nodeReady) return { ok: null, note: 'node SDK 未就绪，跳过' };
       // ESM import 不认 NODE_PATH —— 把脚本写进 RUNTIME 目录，node 沿目录上溯解析 RUNTIME/node_modules
       const file = join(RUNTIME, srcName(def, proto));
-      await writeFile(file, code); // 代码用 process.env.AIHUBMIX_API_KEY，设 env 即可
+      await writeFile(file, code);
       try {
-        return classify(await capture('node', [file], { env: { ...process.env, AIHUBMIX_API_KEY: KEY } }));
+        return classify(await capture('node', [file], { env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -322,9 +336,9 @@ async function runCombo(gen, proto, lang, rt) {
       if (!rt.go.ok) return { ok: null, note: rt.go.reason || 'go 未就绪，跳过' };
       // 写进 module 目录、按 proto 唯一命名（go run <file> 只编译指定文件，并发安全）
       const file = join(RUNTIME_GO, srcName(def, proto));
-      await writeFile(file, withKey());
+      await writeFile(file, code);
       try {
-        return classify(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000 }));
+        return classify(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000, env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -333,19 +347,19 @@ async function runCombo(gen, proto, lang, rt) {
       if (!rt.javaOk) return { ok: null, note: 'JDK 未安装，跳过' };
       // 单文件源码模式：java Main.java（JDK 11+，零依赖）——文件名必须与 public class 同名
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('java', [file], { timeout: 120000 }));
+      await writeFile(file, code);
+      return classify(await capture('java', [file], { timeout: 120000, env: keyEnv }));
     }
     if (lang === 'csharp') {
       if (!rt.dotnet.ok) return { ok: null, note: 'dotnet SDK 未安装，跳过' };
-      await writeFile(join(dir, srcName(def, proto)), withKey());
+      await writeFile(join(dir, srcName(def, proto)), code);
       await writeFile(join(dir, 'app.csproj'),
         `<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType>` +
         `<TargetFramework>${rt.dotnet.tfm}</TargetFramework><ImplicitUsings>enable</ImplicitUsings>` +
         `<Nullable>disable</Nullable></PropertyGroup></Project>`);
       // 抑制 .NET 首次运行欢迎横幅/遥测，否则 banner 会混入输出导致误判。
       const dotnetEnv = {
-        ...process.env,
+        ...keyEnv,
         DOTNET_NOLOGO: '1',
         DOTNET_CLI_TELEMETRY_OPTOUT: '1',
         DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
@@ -358,8 +372,8 @@ async function runCombo(gen, proto, lang, rt) {
       if (proto !== 'messages' && !rt.ruby.gemOk)
         return { ok: null, note: rt.ruby.reason || 'ruby-openai 未就绪，跳过' };
       const file = join(dir, srcName(def, proto));
-      await writeFile(file, withKey());
-      return classify(await capture('ruby', [file], { env: rt.ruby.env }));
+      await writeFile(file, code);
+      return classify(await capture('ruby', [file], { env: { ...rt.ruby.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
     }
     // config/languages.ts 加了语言但这里没加执行分支 —— 显式标出，不静默当 skip 放行。
     return { ok: false, note: `harness 未实现该语言的执行方式：${lang}` };
@@ -493,8 +507,19 @@ if (isMain) (async () => {
   if (!javaOk) console.log('  ⚠ JDK 未安装：java 组合将 skip');
   if (!dotnet.ok) console.log('  ⚠ dotnet SDK 未安装：csharp 组合将 skip');
 
+  // --only chat/go[,messages/python]：只跑点名的格子。修完一格之后回验时，没有它就得
+  // 为一格重打 28 次真实请求 —— 花钱、慢，而且噪音（缺 runtime、模型不属于该协议）会盖住
+  // 真正要看的那一格。不传就是全量，行为不变。
+  const only = (argVal('--only') || '').split(',').map((s) => s.trim()).filter(Boolean);
   const jobs = [];
-  for (const proto of PROTOS) for (const lang of LANGS) jobs.push({ proto, lang });
+  for (const proto of PROTOS) for (const lang of LANGS) {
+    if (only.length && !only.includes(`${proto}/${lang}`)) continue;
+    jobs.push({ proto, lang });
+  }
+  if (only.length && !jobs.length) {
+    console.error(`✗ --only 没匹配到任何组合。可选：${PROTOS.map((p) => `${p}/<lang>`).join(' ')}`);
+    process.exit(2);
+  }
   // 并发上限:21 组合(协议×语言)全并发在 2 核 runner 上真实编译+调用会互相拖慢→逼近超时→成片假红。
   // 限 4 并发,失败/异常隔离到单组合(runCombo 内已 try/catch,这里再兜 writeFile/mkdtemp 冒泡)。
   const results = await mapPool(jobs, 4, (j) =>
@@ -525,8 +550,12 @@ if (isMain) (async () => {
   // 防假绿:skip 在门禁层不能等同 pass。runtime 集体缺失/装失败会让大量组合 skip,
   // 若不设底,极端下"0/0 通过 21 跳过"仍 exit 0 → 网关收到"成功"却零验证放行。
   // 底线:核心语言(curl 恒可用 + python)必须至少各真跑过一次,且总通过数>0。
+  //
+  // --only 是**人工点名单格回验**,不是门禁跑法:点了 chat/go 就该只跑那一格,此时
+  // 「curl/python 没跑」是要求的结果而不是塌方。所以这条底线只在全量模式下生效
+  // ——CI 里没人传 --only,门禁强度不变。
   const CORE = ['curl', 'python'];
-  const coreRan = CORE.every((l) => results.some((r) => r.lang === l && r.ok !== null));
+  const coreRan = only.length || CORE.every((l) => results.some((r) => r.lang === l && r.ok !== null));
   if (passed === 0) {
     console.error('\n✗ 零组合真实通过(全 skip 或全失败)——不作为成功结论,exit 2。');
     process.exit(2);

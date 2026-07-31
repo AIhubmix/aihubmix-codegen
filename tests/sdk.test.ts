@@ -60,11 +60,32 @@ describe('config/sdk.ts 记录自洽', () => {
 });
 
 describe('bug 回归：Claude 系 python 示例读错响应', () => {
-  it('messages 协议的 python 示例读 content[0].text，全文不得出现 choices[', () => {
+  it('messages 协议的 python 示例读 content 里的 text 块，全文不得出现 choices[', () => {
     const code = generateCode('messages', 'python', baseCtx);
     expect(code).toContain('from anthropic import Anthropic');
-    expect(code).toContain('.content[0].text');
+    expect(code).toContain('message.content');
     expect(code).not.toContain('choices[');
+  });
+
+  // 第二个 bug，实测出来的：content[0] 在开思考的模型上是 thinking 块，
+  // 粘进终端跑 claude-opus-5 五次挂三次（AttributeError: 'ThinkingBlock' has no attribute 'text'）。
+  // 块数组一律按类型挑，所以任何 SDK 记录都不许再按下标取块里的正文。
+  // 只盯**顶层**块数组：Anthropic 的 `content` 与 responses 的 `output`。
+  // ruby responses 那条 `dig("output", -1, "content", 0, "text")` 不在此列 ——
+  // 它先按 -1 选中了 message 块，里面那个 content 是该块的正文分片数组，不会混进 reasoning。
+  it('顶层块数组不许按下标取正文（content[0] / output[0] 都不行）', () => {
+    for (const [lang, byProto] of Object.entries(SDK)) {
+      for (const [proto, def] of Object.entries(byProto ?? {})) {
+        if (!def) continue;
+        const where = `${lang}/${proto}`;
+        expect(/\.content\[0\]|\.output\[0\]|dig\("output", 0/.test(def.read), `${where} read 按下标取块：${def.read}`).toBe(false);
+      }
+    }
+  });
+
+  it('messages 的 python / javascript 示例按 type == text 挑块', () => {
+    expect(generateCode('messages', 'python', baseCtx)).toContain('b.type == "text"');
+    expect(generateCode('messages', 'javascript', baseCtx)).toContain('b.type === "text"');
   });
 
   it('messages 协议的 javascript / ruby 示例同样不得出现 choices[', () => {

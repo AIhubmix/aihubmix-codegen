@@ -7,6 +7,11 @@
  * `response.content[0].text`），Claude 系模型页的 python 示例照抄跑不通。绑成一条之后
  * 这类错配是结构上不可能，且可被一条自洽性测试钉死。
  *
+ * `read` 还有第二类坑：**取对了客户端也可能取错块**。Anthropic 的 `content` 与 OpenAI
+ * responses 的 `output` 都是块数组，开思考的模型会把 `thinking` / `reasoning` 排在第一块，
+ * 按下标 `[0]` 取正文时灵时不灵（claude-opus-5 实测五次挂三次）。所以块数组一律**按类型挑**，
+ * 不按下标取 —— ruby responses 那条注释是同一个教训的更早一版。
+ *
  * 只覆盖 SDK 型单元格；原生 REST 单元格（go/java/csharp/curl 的非 chat 协议）不需要。
  * 纯数据、零逻辑、可 JSON 序列化 —— 将来若改由 canon 生成，是换数据源不是重写结构。
  */
@@ -56,7 +61,9 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       baseSuffix: '',
       call: 'client.messages.create',
       resultVar: 'message',
-      read: 'print(message.content[0].text)',
+      // 不能写 content[0]：Claude 系默认开思考，content 里第一块常常是 thinking，
+      // 取 [0].text 会 AttributeError（实测 claude-opus-5 五次里挂三次）。
+      read: '# content may start with a thinking block — pick by type, not by index\nprint(next(b.text for b in message.content if b.type == "text"))',
       readStream: 'with message as stream:\n    for text in stream.text_stream:\n        print(text, end="")',
     },
     responses: {
@@ -103,7 +110,8 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       baseSuffix: '',
       call: 'client.messages.create',
       resultVar: 'message',
-      read: 'console.log(message.content[0].text);',
+      // 同 python：content[0] 可能是 thinking 块，见下方 python messages 的注释。
+      read: '// content may start with a thinking block — pick by type, not by index\nconsole.log(message.content.find((b) => b.type === "text")?.text);',
       readStream:
         'for await (const event of message) {\n  if (event.type === "content_block_delta") process.stdout.write(event.delta.text ?? "");\n}',
     },
@@ -152,7 +160,7 @@ export const SDK: Partial<Record<CodeLang, Partial<Record<CodeProto, SdkDef>>>> 
       baseSuffix: '',
       call: 'client.responses.create',
       resultVar: 'response',
-      read: '# output[0] 可能是 reasoning，回复文本通常在最后一个 output 块\nputs response.dig("output", -1, "content", 0, "text")',
+      read: '# output[0] may be reasoning — the reply text is usually in the last output block\nputs response.dig("output", -1, "content", 0, "text")',
       streamParam: 'stream: proc { |chunk, _event| print chunk.dig("delta") },',
     },
   },
