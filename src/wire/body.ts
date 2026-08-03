@@ -162,6 +162,12 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
     emitEnums(gc, ctx); // responseMimeType 等
     emitObjects(gc, ctx); // stopSequences 等
     emitExtraNumbers(gc, ctx, proto); // topP/topK/maxOutputTokens/candidateCount/frequencyPenalty/...
+    // cachedContent 是顶层字段（显式缓存资源名引用，配 cachedContents 生命周期接口），
+    // 不属于 generationConfig —— emitEnums 按扁平键写进了 gc，这里提升回顶层。
+    if (typeof gc.cachedContent === 'string') {
+      b.cachedContent = gc.cachedContent;
+      delete gc.cachedContent;
+    }
     if (Object.keys(gc).length) b.generationConfig = gc;
     emitCapabilities(b, ctx, proto);
     return b;
