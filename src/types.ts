@@ -171,6 +171,10 @@ export interface CodeGenCtx {
   cache?: boolean;
   /** provider 侧联网搜索（chat 下发 web_search_options:{}）。 */
   webSearch?: boolean;
+  /** 程序化工具调用（PTC）：仅 responses 协议、且 tools 启用时生效——往 tools 数组头部
+   *  插入常量条目 {type:'programmatic_tool_calling'}（spec: ProgrammaticToolCallingParam）。
+   *  其他协议忽略（chat 官方仅 function;messages 走 code_execution+allowed_callers,未实现）。 */
+  ptc?: boolean;
   /** 启用结构化输出时传入；否则 null/undefined */
   structured?: StructuredCfg | null;
 }

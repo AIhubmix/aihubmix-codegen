@@ -48,7 +48,7 @@ function group(ctx: CodeGenCtx, key: string): Record<string, unknown> {
 export const CAPABILITIES: CapabilityDef[] = [
   {
     id: 'tools',
-    gatedKeys: ['parallel_tool_calls'],
+    gatedKeys: ['parallel_tool_calls', 'tools[].programmatic_tool_calling'],
     enabled: (ctx) => !!ctx.tools,
     emit: {
       chat: (b, ctx) => {
@@ -64,7 +64,11 @@ export const CAPABILITIES: CapabilityDef[] = [
         emitParallelToolCalls(b, ctx);
       },
       responses: (b, ctx) => {
-        b.tools = respToolsArr(ctx.tools!);
+        const arr = respToolsArr(ctx.tools!);
+        // PTC：schema 声明该 pattern 字段且面板开启时，头部插常量条目（模型在代码环境编排调用其余工具）
+        if (ctx.ptc && inSchema(ctx, 'tools[].programmatic_tool_calling'))
+          arr.unshift({ type: 'programmatic_tool_calling' } as never);
+        b.tools = arr;
         const tcw = toolChoiceWire('responses', ctx.toolChoice);
         if (tcw !== undefined) b.tool_choice = tcw;
         emitParallelToolCalls(b, ctx);
