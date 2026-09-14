@@ -43,15 +43,22 @@ export function splitDataUri(src: string): { media_type: string; data: string } 
  * · `frame_images:first_frame` / `frame_images:last_frame`（虚拟槽）→ 折叠成一个
  *   `frame_images: [{frame_type, image_url:{url}}]`（first 排前，网关真实 schema 要求的结构化对象数组，
  *   不是裸串）。
- * · `input_references` → 每张图转成 `{type:'image_url', url}`（结构化对象数组）。
+ * · `input_references:image_url` / `:video_url` / `:audio_url`（虚拟槽，一类素材一个槽）→ 折叠成一个
+ *   `input_references: [{type, url}]`，顺序按 schema 的 enum 顺序（图→视频→音频）。素材类型取自槽名，
+ *   不从文件推断：签名链接常常不带扩展名，推断必错。裸 `input_references`（老 schema 无 type enum，
+ *   playground 退回单图槽）仍按 image_url 处理。
  * · 其余 key → 原样：单图裸串，多图串数组。
  */
+/** input_references 各素材类型的下发顺序，与 schema items.properties.type.enum 一致。 */
+const REF_TYPE_ORDER = ['image_url', 'video_url', 'audio_url'];
+
 export function refImagesToWireFields(
   refImages: Record<string, ImagePart[]>,
   partToStr: (p: ImagePart) => string,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const frames: Array<{ frame_type: 'first_frame' | 'last_frame'; image_url: { url: string } }> = [];
+  const refsByType: Record<string, string[]> = {};
 
   for (const [k, parts] of Object.entries(refImages)) {
     if (!parts?.length) continue;
@@ -60,8 +67,9 @@ export function refImagesToWireFields(
       frames.push({ frame_type, image_url: { url: partToStr(parts[0]) } });
       continue;
     }
-    if (k === 'input_references') {
-      out[k] = parts.map((p) => ({ type: 'image_url', url: partToStr(p) }));
+    if (k === 'input_references' || k.startsWith('input_references:')) {
+      const type = k.slice('input_references:'.length) || 'image_url';
+      (refsByType[type] ??= []).push(...parts.map(partToStr));
       continue;
     }
     out[k] = parts.length === 1 ? partToStr(parts[0]) : parts.map(partToStr);
@@ -71,6 +79,18 @@ export function refImagesToWireFields(
     const rank = (f: (typeof frames)[number]) => (f.frame_type === 'first_frame' ? 0 : 1);
     frames.sort((a, b) => rank(a) - rank(b));
     out.frame_images = frames;
+  }
+
+  const typeKeys = Object.keys(refsByType);
+  if (typeKeys.length) {
+    // enum 顺序（图→视频→音频）；enum 之外的类型排在后面，保持稳定输出而不是丢掉
+    const rank = (t: string) => {
+      const i = REF_TYPE_ORDER.indexOf(t);
+      return i < 0 ? REF_TYPE_ORDER.length : i;
+    };
+    out.input_references = typeKeys
+      .sort((a, b) => rank(a) - rank(b))
+      .flatMap((type) => refsByType[type].map((url) => ({ type, url })));
   }
 
   return out;

@@ -6,6 +6,7 @@
 import type { ImagePart, MediaCodeGenOpts } from '../types.js';
 import { IMG_PATH_DEFAULT, VID_PATH_DEFAULT } from '../config/media.js';
 import { placeholderFor, refImagesToWireFields } from './multimodal.js';
+import { isEmptyContainer } from './gate.js';
 
 /** 媒体请求上下文（endpoint 归一 + 源图折叠），贯穿各语言生成函数。 */
 export interface MediaCtx {
@@ -23,11 +24,13 @@ export interface MediaCtx {
   hasRef: boolean;
 }
 
-/** 过滤掉 undefined / 空串的 params，仅保留有意义的键 */
+/** 过滤掉 undefined / 空串 / 空容器的 params，仅保留有意义的键。
+ *  空容器（`{}` / `[]`）来自 extra 这类「声明了但一个键都没填」的复合字段：下发过去网关只会当成
+ *  显式空值去覆盖默认行为，而不是「没填」。文本协议侧 emitObjects 早就这么裁了，这里对齐。 */
 export function filterParams(params: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(params).filter(
-      ([, v]) => v !== undefined && v !== null && v !== '',
+      ([, v]) => v !== undefined && v !== null && v !== '' && !isEmptyContainer(v),
     ),
   );
 }
