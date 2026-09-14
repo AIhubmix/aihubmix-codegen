@@ -35,6 +35,8 @@ export { ENDPOINT_TO_PROTO, KIND_TO_PROTO, protosFromEndpoints } from './config/
 // ---- wire 层（真实请求与 codegen 共用）----
 export { authHeaders } from './wire/auth.js';
 export { buildBody } from './wire/body.js';
+// 消费端（playground 媒体提交）要和 filterParams 用同一份「空值」判据，否则真实请求与 Get Code 分叉
+export { isEmptyContainer } from './wire/gate.js';
 export { CAPABILITIES, CAP_GATED_WIRE_KEYS, type CapabilityDef } from './wire/capabilities.js';
 export { endpointPath } from './wire/endpoint.js';
 export { buildMessages } from './wire/messages.js';
