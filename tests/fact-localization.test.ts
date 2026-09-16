@@ -27,6 +27,7 @@ const FACTS: { name: string; re: RegExp }[] = [
   { name: 'anthropic-version 值', re: /2023-06-01/ },
   { name: '协议路由', re: /['"`]\/v1\/(chat\/completions|messages|responses)/ },
   { name: 'gemini 路由', re: /\/gemini\/v1beta/ },
+  { name: 'realtime 路由', re: /['"`]\/v1\/realtime/ },
 ];
 
 /**

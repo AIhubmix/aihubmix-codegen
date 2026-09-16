@@ -179,6 +179,26 @@ export interface CodeGenCtx {
   structured?: StructuredCfg | null;
 }
 
+/** generateRealtimeCode 的入参（realtime 转录，WS 传输形态，独立于 CodeProto 词表） */
+export interface RealtimeCodeGenOpts {
+  /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
+  baseUrl: string;
+  /** 模型 ID（落握手 URL，也钉进 session.update 的 transcription.model） */
+  modelId: string;
+  /** 预期语言（复数形态，官方推荐；如 ["en","zh"]）。单数 language 不收：二者互斥，包侧只走一条。 */
+  languages?: string[];
+  /** 场景提示（自由文本，帮助模型贴合语域） */
+  prompt?: string;
+  /** 字面提示词（产品名/缩写/专有名词） */
+  keywords?: string[];
+  /** 延迟/准确率档位 */
+  delay?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /** 降噪：近场/远场 */
+  noiseReduction?: 'near_field' | 'far_field';
+  /** 语言 */
+  lang: CodeLang;
+}
+
 /** generateMediaCode 的入参 */
 export interface MediaCodeGenOpts {
   /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */

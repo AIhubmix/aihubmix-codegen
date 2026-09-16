@@ -3,10 +3,11 @@
  *
  * 分发逻辑全在 renderers/registry.ts 的两张表里，本文件只剩查表 + 降级。
  */
-import type { CodeGenCtx, CodeLang, CodeProto, MediaCodeGenOpts } from './types.js';
+import type { CodeGenCtx, CodeLang, CodeProto, MediaCodeGenOpts, RealtimeCodeGenOpts } from './types.js';
 import { MEDIA_PLACEHOLDER } from './config/placeholders.js';
-import { MEDIA_RENDERERS, RENDERERS } from './renderers/registry.js';
+import { MEDIA_RENDERERS, REALTIME_RENDERERS, RENDERERS } from './renderers/registry.js';
 import { buildMediaCtx, filterParams } from './wire/media.js';
+import { buildRealtimeSession, realtimeWsUrl } from './wire/realtime.js';
 import { curl } from './renderers/curl.js';
 
 export function generateCode(proto: CodeProto, lang: CodeLang, ctx: CodeGenCtx): string {
@@ -30,4 +31,18 @@ export function generateMediaCode(opts: MediaCodeGenOpts): string {
   const byLang = MEDIA_RENDERERS[modality];
   // 未知语言退 curl（通用 REST），与查表化之前的降级一致。
   return (byLang[lang] ?? byLang.curl)(ctx);
+}
+
+/**
+ * 生成 realtime 转录（WebSocket 双向流）请求代码。传输形态与四协议不同，独立入口
+ * （照 media 先例），不进 CodeProto 词表。握手 URL 与 session.update 首帧分别由
+ * realtimeWsUrl / buildRealtimeSession 产出 —— 消费端真实 WS 客户端必须走同两个函数。
+ */
+export function generateRealtimeCode(opts: RealtimeCodeGenOpts): string {
+  const ctx = {
+    url: realtimeWsUrl(opts.baseUrl, opts.modelId),
+    session: buildRealtimeSession(opts),
+  };
+  // 未知语言退 curl 格（wscat 连通性说明总可读），与另两张表的降级一致。
+  return (REALTIME_RENDERERS[opts.lang] ?? REALTIME_RENDERERS.curl)(ctx);
 }

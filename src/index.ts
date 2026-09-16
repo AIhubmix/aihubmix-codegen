@@ -20,6 +20,7 @@ export type {
   MediaCodeGenOpts,
   Modality,
   ProtoDef,
+  RealtimeCodeGenOpts,
   StructuredCfg,
   ToolCall,
   ToolDef,
@@ -49,9 +50,12 @@ export {
   splitDataUri,
   unsupportedForProto,
 } from './wire/multimodal.js';
+// realtime 同源缝：消费端真实 WS 客户端取握手 URL / 首帧配置必须走这两个函数
+export { buildRealtimeSession, realtimeWsUrl, type RealtimeCtx } from './wire/realtime.js';
+export { RT_AUDIO_TYPE, RT_CHUNK_MS, RT_INTENT, RT_PATH, RT_SAMPLE_RATE } from './config/realtime.js';
 
 // ---- 代码生成 ----
-export { generateCode, generateMediaCode } from './generate.js';
+export { generateCode, generateMediaCode, generateRealtimeCode } from './generate.js';
 
 // ---- 这里曾经还有一层「能力注入层」（generateFromCapabilities / CAPABILITY_PUTS /
 //      verdict 策略表 / 按能力名索引的示例值）。它说的是 canon 词汇（能力键、verdict），
