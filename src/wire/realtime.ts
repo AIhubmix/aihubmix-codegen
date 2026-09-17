@@ -19,6 +19,15 @@ export interface RealtimeCtx {
   session: Record<string, unknown>;
 }
 
+/**
+ * 首帧是否启用了服务端 VAD（turn_detection 非 null）。渲染器据此切「边说边分段」/「手动收段」
+ * 两套注释与收尾逻辑，保证生成的示例与 session 配置自洽。
+ */
+export function sessionUsesVad(ctx: RealtimeCtx): boolean {
+  const session = ctx.session as { session?: { audio?: { input?: { turn_detection?: unknown } } } };
+  return session.session?.audio?.input?.turn_detection != null;
+}
+
 /** 握手 URL：https base → wss，query 必带 intent 与 model（网关握手期硬性要求）。 */
 export function realtimeWsUrl(baseUrl: string, modelId: string): string {
   const wsBase = baseUrl.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
@@ -28,7 +37,9 @@ export function realtimeWsUrl(baseUrl: string, modelId: string): string {
 /**
  * session.update 首帧载荷。
  * - transcription.model 必须与握手 URL 一致（网关越权拦截，1008 关会话）。
- * - turn_detection 恒 null：转录会话不支持 VAD，非 null 会被模型推理商 invalid_value 拒。
+ * - turn_detection 缺省 server_vad：服务端按停顿自动分段、边说边流式吐 delta——这是网关默认
+ *   （实测 session.created 即回 {type:'server_vad',…}），也是实时转录应有形态。传 turnDetection:'none'
+ *   才关 VAD、走手动 commit 收段。手动 commit 在 server_vad 下也能安全冲刷尾段（实测不报 commit_empty）。
  * - languages（复数）与 language（单数）二选一；本入口只收 languages（官方推荐形态）。
  */
 export function buildRealtimeSession(opts: RealtimeCodeGenOpts): Record<string, unknown> {
@@ -41,7 +52,7 @@ export function buildRealtimeSession(opts: RealtimeCodeGenOpts): Record<string, 
   const input: Record<string, unknown> = {
     format: { type: RT_AUDIO_TYPE, rate: RT_SAMPLE_RATE },
     transcription,
-    turn_detection: null,
+    turn_detection: opts.turnDetection === 'none' ? null : { type: 'server_vad' },
   };
   if (opts.noiseReduction) input.noise_reduction = { type: opts.noiseReduction };
 

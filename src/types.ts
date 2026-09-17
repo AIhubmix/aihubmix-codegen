@@ -193,6 +193,13 @@ export interface RealtimeCodeGenOpts {
   keywords?: string[];
   /** 延迟/准确率档位 */
   delay?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  /**
+   * 轮次检测（turn detection / VAD，voice activity detection = 语音活动检测）。
+   * 缺省 'server_vad'：服务端按语音停顿自动分段、边说边流式吐字（delta）——这是网关默认，
+   * 也是「实时转录」应有形态（实测 session.created 即回 server_vad）。
+   * 'none' 关闭 VAD，改由客户端显式 input_audio_buffer.commit 收段（整段音频文件的确定性转录）。
+   */
+  turnDetection?: 'server_vad' | 'none';
   /** 降噪：近场/远场 */
   noiseReduction?: 'near_field' | 'far_field';
   /** 语言 */

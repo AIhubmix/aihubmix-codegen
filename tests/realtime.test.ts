@@ -34,16 +34,22 @@ describe('realtimeWsUrl', () => {
 });
 
 describe('buildRealtimeSession', () => {
-  it('最小载荷：type/format/model 钉死，turn_detection 恒 null', () => {
+  it('最小载荷：type/format/model 钉死，turn_detection 缺省 server_vad（网关默认，实时流式）', () => {
     const s = buildRealtimeSession(optsWith()) as any;
     expect(s.type).toBe('session.update');
     expect(s.session.type).toBe('transcription');
     const input = s.session.audio.input;
     expect(input.format).toEqual({ type: 'audio/pcm', rate: 24000 });
     expect(input.transcription.model).toBe(MODEL);
-    // 显式 null 是协议要求（非 null 被模型推理商 invalid_value 拒），不能被裁剪成 undefined
-    expect(input).toHaveProperty('turn_detection', null);
+    // 缺省服务端 VAD：边说边分段、流式吐 delta（实测 session.created 即回 server_vad）
+    expect(input.turn_detection).toEqual({ type: 'server_vad' });
     expect(input.noise_reduction).toBeUndefined();
+  });
+
+  it("turnDetection:'none' 关 VAD → turn_detection 显式 null（手动 commit 收段）", () => {
+    const input = (buildRealtimeSession(optsWith({ turnDetection: 'none' })) as any).session.audio.input;
+    // 显式 null 不能被裁剪成 undefined —— 协议区分「不传（默认 VAD）」与「传 null（关 VAD）」
+    expect(input).toHaveProperty('turn_detection', null);
   });
 
   it('可选参数全量透出；空数组/空串不出现', () => {
@@ -51,7 +57,7 @@ describe('buildRealtimeSession', () => {
       optsWith({
         languages: ['en', 'zh'],
         prompt: '  meeting notes  ',
-        keywords: ['AiHubMix'],
+        keywords: ['AIHubMix'],
         delay: 'low',
         noiseReduction: 'near_field',
       }),
@@ -61,7 +67,7 @@ describe('buildRealtimeSession', () => {
       model: MODEL,
       languages: ['en', 'zh'],
       prompt: 'meeting notes',
-      keywords: ['AiHubMix'],
+      keywords: ['AIHubMix'],
       delay: 'low',
     });
     expect(input.noise_reduction).toEqual({ type: 'near_field' });
