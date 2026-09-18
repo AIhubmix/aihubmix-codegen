@@ -231,6 +231,62 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
   });
 
+  // decision 半边：EVIL 经 state 与 questions 的 instructions/criteria（全是自由文本 →
+  // 转义面）注入 body。criteria 的**键名**也吃用户输入，是另三个面没有的形态 ——
+  // 键名进 JSON 的转义路径与值相同，但 ruby 的 `#{}` 插值、java 文本块都会一并经过。
+  const decOpts = (lang) => ({
+    baseUrl: 'https://api.inferera.com', modelId: 'jev-1.13',
+    state: EVIL,
+    questions: {
+      [EVIL]: { type: 'choice', instructions: EVIL, criteria: { [EVIL]: EVIL } },
+      lvl: { type: 'score', instructions: EVIL, criteria: [EVIL, 'ok'] },
+    },
+    lang,
+  });
+
+  if (!pyOk) { skip('python decision', 'no python3'); }
+  else check('python decision compiles', () => {
+    const f = join(d, 'dec.py'); writeFileSync(f, gen.generateDecisionCode(decOpts('python')));
+    execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+  });
+  check('javascript decision node --check 通过', () => {
+    const f = join(d, 'dec.mjs'); writeFileSync(f, gen.generateDecisionCode(decOpts('javascript')));
+    execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
+  });
+  if (!rbOk) { skip('ruby decision', 'no ruby'); }
+  else check('ruby decision syntax', () => {
+    const f = join(d, 'dec.rb'); writeFileSync(f, gen.generateDecisionCode(decOpts('ruby')));
+    execFileSync('ruby', ['-c', f], { stdio: 'ignore' });
+  });
+
+  check('java decision body 解转义后合法 JSON', () => {
+    const c = gen.generateDecisionCode(decOpts('java'));
+    const m = c.match(/String body = """\n([\s\S]*?)\n\s*""";/);
+    if (!m) throw new Error('未找到 Java 文本块');
+    JSON.parse(m[1].replace(/\\\\/g, '\\').replace(/^\s+/gm, ''));
+  });
+  check('java decision 代码部分无反斜杠', () => {
+    const bad = javaCodeOnly(gen.generateDecisionCode(decOpts('java')))
+      .split('\n').filter((l) => l.includes('\\'));
+    if (bad.length) throw new Error(`出现反斜杠(双层转义陷阱)：${bad.join(' | ')}`);
+  });
+  check('java decision 无紧贴单词的双引号对（转义塌陷指纹）', () => {
+    const bad = javaCodeOnly(gen.generateDecisionCode(decOpts('java')))
+      .split('\n').filter((l) => /\w""|""\w/.test(l));
+    if (bad.length) throw new Error(`出现 ""：多半是 \\" 在 JS 模板里塌了一层：${bad.join(' | ')}`);
+  });
+
+  // curl 的 -d 段：EVIL 带 `$(whoami)`、反引号、单引号，单引号包裹 + shellSafe 之后
+  // 必须仍是合法 JSON 且内容逐字还原 —— 这是「复制出来能直接跑」的底线。
+  check('curl decision 的 -d 段还原后逐字等于 buildDecisionBody', () => {
+    const opts = decOpts('curl');
+    const m = gen.generateDecisionCode(opts).match(/-d '([\s\S]*)'$/);
+    if (!m) throw new Error('未找到 -d 段');
+    const got = JSON.parse(m[1].replace(/'\\''/g, "'"));
+    const want = gen.buildDecisionBody(opts);
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error('与 buildDecisionBody 不一致');
+  });
+
   console.log(`\n结果：${fails ? `${fails} FAIL` : '全部通过'}${skips ? `，${skips} skip` : ''}`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('测试 harness 异常：', e); process.exit(2); });

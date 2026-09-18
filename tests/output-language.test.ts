@@ -16,7 +16,13 @@
  * 用户自己输入中文 prompt 当然照常进产物，那是数据不是模板，不受这条约束。
  */
 import { describe, it, expect } from 'vitest';
-import { generateCode, generateMediaCode, PROTOCOLS, LANGS } from '../src/index.js';
+import {
+  generateCode,
+  generateDecisionCode,
+  generateMediaCode,
+  PROTOCOLS,
+  LANGS,
+} from '../src/index.js';
 import { BASE, baseCtx, ctxWith, TOOLS, STRUCTURED } from './fixture.js';
 
 /** CJK 统一表意文字 + 中文标点（，。：；（）「」【】等）。 */
@@ -61,5 +67,26 @@ describe('生成的媒体代码里没有中文', () => {
         expect(cjkLines(code)).toEqual([]);
       });
     }
+  }
+});
+
+describe('生成的 decision 代码里没有中文', () => {
+  for (const lang of LANGS) {
+    it(`decision / ${lang.id}`, () => {
+      // 缺省（走占位模板）与自带输入两种形态，覆盖 body 的两条来源。
+      const variants = [
+        { baseUrl: BASE, modelId: 'jev-1.13', lang: lang.id },
+        {
+          baseUrl: BASE,
+          modelId: 'jev-1.13',
+          state: 'a support ticket',
+          questions: { ok: { type: 'noul' as const, instructions: 'Is this resolved?' } },
+          lang: lang.id,
+        },
+      ];
+      for (const opts of variants) {
+        expect(cjkLines(generateDecisionCode(opts))).toEqual([]);
+      }
+    });
   }
 });

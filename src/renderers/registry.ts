@@ -35,7 +35,15 @@ import {
   realtimeConvPy,
   realtimeConvTs,
 } from './realtime/conversation.js';
+import { decisionCs } from './decision/csharp.js';
+import { decisionCurl } from './decision/curl.js';
+import { decisionGo } from './decision/go.js';
+import { decisionJava } from './decision/java.js';
+import { decisionPy } from './decision/python.js';
+import { decisionRuby } from './decision/ruby.js';
+import { decisionTs } from './decision/typescript.js';
 import type { RealtimeCtx } from '../wire/realtime.js';
+import type { DecisionCtx } from '../wire/decision.js';
 
 export type Renderer = (proto: CodeProto, ctx: CodeGenCtx) => string;
 
@@ -103,6 +111,22 @@ export const REALTIME_CONV_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
   java: realtimeConvFallback('java'),
   csharp: realtimeConvFallback('csharp'),
   ruby: realtimeConvFallback('ruby'),
+};
+
+export type DecisionRenderer = (ctx: DecisionCtx) => string;
+
+/**
+ * Decision（结构化决策）渲染器：语言 → 渲染函数（独立于 CodeProto 表，理由见 config/decision.ts）。
+ * 形态是朴素的单次 JSON POST，七门语言全量实装 —— 不像 realtime 的 WS 那样需要降级格。
+ */
+export const DECISION_RENDERERS: Record<CodeLang, DecisionRenderer> = {
+  python: decisionPy,
+  javascript: decisionTs,
+  go: decisionGo,
+  java: decisionJava,
+  csharp: decisionCs,
+  ruby: decisionRuby,
+  curl: decisionCurl,
 };
 
 /** 媒体渲染器：模态 × 语言。图是单段同步 POST，视频是提交 + 轮询 + 下载三段。 */

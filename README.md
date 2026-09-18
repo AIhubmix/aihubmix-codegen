@@ -53,7 +53,13 @@ Protocol → route and auth header are the gateway contract, and live in exactly
 | `messages` | `/v1/messages` | `x-api-key` (+ `anthropic-version`) |
 | `gemini` | `/gemini/v1beta/models/{model}:generateContent` | `x-goog-api-key` |
 
-Media generation (image / video × 7 languages) is available through `generateMediaCode(opts)`.
+Three more surfaces sit **beside** the table above rather than inside it. They are different kinds of call, not a fifth way to write the same one, so each has its own entry point and its own renderer table — `CodeProto` stays a closed set of four:
+
+| surface | entry point | shape |
+|---|---|---|
+| media | `generateMediaCode(opts)` | image: one sync POST; video: submit + poll + download |
+| realtime | `generateRealtimeCode(opts)` | WebSocket, transcription or conversation |
+| decision | `generateDecisionCode(opts)` | one POST `/v1/systemone`: a `state` plus typed `questions`, a typed `answers` map back — no text to parse |
 
 ## `baseUrl` is required, and there is no setter
 
