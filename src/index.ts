@@ -14,6 +14,8 @@ export type {
   CodeGenParams,
   CodeLang,
   CodeProto,
+  DecisionCodeGenOpts,
+  DecisionQuestion,
   EndpointMeta,
   ImagePart,
   LangDef,
@@ -59,6 +61,15 @@ export {
   realtimeWsUrl,
   type RealtimeCtx,
 } from './wire/realtime.js';
+// decision 同源缝：消费端真实请求的 body 必须走 buildDecisionBody，不许旁路拼
+// —— 否则「Get Code 里写的」与「点发送真发出去的」会各自演化。
+export { buildDecisionBody, buildDecisionCtx, type DecisionCtx } from './wire/decision.js';
+export {
+  DECISION_PATH,
+  DECISION_QUESTIONS_PLACEHOLDER,
+  DECISION_STATE_PLACEHOLDER,
+  DECISION_TYPES,
+} from './config/decision.js';
 export {
   RT_AUDIO_TYPE,
   RT_CHUNK_MS,
@@ -70,7 +81,12 @@ export {
 } from './config/realtime.js';
 
 // ---- 代码生成 ----
-export { generateCode, generateMediaCode, generateRealtimeCode } from './generate.js';
+export {
+  generateCode,
+  generateDecisionCode,
+  generateMediaCode,
+  generateRealtimeCode,
+} from './generate.js';
 
 // ---- 这里曾经还有一层「能力注入层」（generateFromCapabilities / CAPABILITY_PUTS /
 //      verdict 策略表 / 按能力名索引的示例值）。它说的是 canon 词汇（能力键、verdict），

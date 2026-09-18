@@ -58,12 +58,20 @@ const CANON_VERDICTS = [
   'official-model-level',
 ];
 
-/** canon 投影里的协议全名（wire 上从不出现 —— 发给网关的 body 里没有这些字符串）。 */
+/**
+ * canon 投影里的协议/面全名（wire 上从不出现 —— 发给网关的 body 里没有这些字符串）。
+ *
+ * 末一条是 decision（结构化决策）面的 canon id。本包只认 wire 词：路径 `/v1/systemone`、
+ * body 键名、`questions{}.type` 的三个取值 —— 那些是**逐字发出去的字节**。
+ * 「canon 管这个面叫 typesafe.systemone」是知识库的事，换算表归 @aihubmix/model-schema
+ * （它持有 CANON_TO_FACE）。写进本包就等于让 codegen 跟着 canon 的词表发版。
+ */
 const CANON_PROTO_IDS = [
   'openai.chat_completions',
   'openai.responses',
   'anthropic.messages',
   'google.gemini',
+  'typesafe.systemone',
 ];
 
 function walk(dir: string, out: string[] = []): string[] {

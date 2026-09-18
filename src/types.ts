@@ -240,3 +240,38 @@ export interface MediaCodeGenOpts {
   /** 语言 */
   lang: CodeLang;
 }
+
+/**
+ * Decision（结构化决策）的单个问题。
+ *
+ * `type` 是判别器（discriminator，靠某个字段的取值决定这个对象是三种形状中的哪一种），
+ * 三种原语的 criteria 形状不同：
+ * - `noul`（是非题）：criteria 可省；给的话是 `{ true: 释义, false: 释义 }`。
+ * - `choice`（选项题）：criteria 必填，`{ 选项名: 释义 | null }`，答案只会落在给定选项里。
+ * - `score`（打分题）：criteria 必填，**数组**——下标即档位号，响应里的 legend / probabilities
+ *   用同一套字符串化下标当键。
+ *
+ * 这里按「三种形状的并集」收，不在包里做判别器校验：包只负责把用户给的东西原样写成 7 门语言
+ * 的请求，合法性由上游 422 裁决（真实请求与 Get Code 必须同形，包侧多一道校验就会分叉）。
+ */
+export interface DecisionQuestion {
+  type: 'noul' | 'choice' | 'score';
+  /** 问题本身（要判定/选择/打分的那句话）。空则不下发。 */
+  instructions?: string;
+  /** 判据：noul/choice 为对象，score 为数组。空对象 / 空数组视为未设置，不下发。 */
+  criteria?: Record<string, unknown> | unknown[];
+}
+
+/** generateDecisionCode 的入参（decision 面，单次 JSON POST，独立于 CodeProto 词表） */
+export interface DecisionCodeGenOpts {
+  /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
+  baseUrl: string;
+  /** 模型 ID */
+  modelId: string;
+  /** 被判定对象：一段文本，或结构化程序状态（对象/数组）。空则用占位模板。 */
+  state?: string | Record<string, unknown> | unknown[];
+  /** 问题表，键由调用方自取（响应 answers 用同一套键回填）。空则用占位模板。 */
+  questions?: Record<string, DecisionQuestion>;
+  /** 语言 */
+  lang: CodeLang;
+}
