@@ -10,6 +10,20 @@ export const RT_PATH = '/v1/realtime';
 /** 会话意图：转录。Gemini Live 等其它 realtime 面接入时再扩为参数。 */
 export const RT_INTENT = 'transcription';
 
+/**
+ * 对话（conversation / speech-to-speech）会话的 session.type。
+ * GA nested 形态下转录是 'transcription'、对话是 'realtime'（上游 GA Realtime 判别子）。
+ * 网关 kind 由模型名（REALTIME_CONVERSATION_MODELS 名单经 DeriveSessionKind）推导，
+ * 握手 URL 对话**不带 intent**（见 realtimeWsUrl），此值只描述 session 对象自身形态。
+ */
+export const RT_CONV_SESSION_TYPE = 'realtime';
+
+/**
+ * 对话默认音色。gpt-realtime-2.1 新增 Marin/Cedar（另有 8 个旧音更新）。
+ * output.voice 在首个 response.created 后不可变，故只在 session.update 首帧钉一次。
+ */
+export const RT_DEFAULT_VOICE = 'marin';
+
 /** 输入音频格式：仅 PCM16 小端 / 单声道 / 24kHz（其它格式被网关 1008 拒）。 */
 export const RT_AUDIO_TYPE = 'audio/pcm';
 export const RT_SAMPLE_RATE = 24000;

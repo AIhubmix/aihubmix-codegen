@@ -179,12 +179,27 @@ export interface CodeGenCtx {
   structured?: StructuredCfg | null;
 }
 
-/** generateRealtimeCode 的入参（realtime 转录，WS 传输形态，独立于 CodeProto 词表） */
+/** generateRealtimeCode 的入参（realtime，WS 传输形态，独立于 CodeProto 词表） */
 export interface RealtimeCodeGenOpts {
+  /**
+   * 会话类型：'transcription'（单向转录，缺省）| 'conversation'（双向语音对语音）。
+   * 决定握手 URL（转录带 intent、对话不带）、session.update 形态（转录拼 transcription、
+   * 对话拼 output.voice + 禁 transcription）与渲染器接收循环（收字 vs 收音频回放）。
+   * **两条 session 由独立 builder 构造，绝不共用**——对话帧带 input.transcription 会被网关
+   * 1008 关整条会话（input_transcription_not_supported）。
+   */
+  kind?: 'transcription' | 'conversation';
   /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
   baseUrl: string;
-  /** 模型 ID（落握手 URL，也钉进 session.update 的 transcription.model） */
+  /** 模型 ID（落握手 URL；转录还钉进 session.update 的 transcription.model） */
   modelId: string;
+  /**
+   * 对话音色（kind='conversation' 生效）。缺省 RT_DEFAULT_VOICE。
+   * 落 session.audio.output.voice，首个 response.created 后不可变。
+   */
+  voice?: string;
+  /** 对话系统指令（kind='conversation' 生效，自由文本）。落 session.instructions；空则不拼。 */
+  instructions?: string;
   /** 预期语言（复数形态，官方推荐；如 ["en","zh"]）。单数 language 不收：二者互斥，包侧只走一条。 */
   languages?: string[];
   /** 场景提示（自由文本，帮助模型贴合语域） */

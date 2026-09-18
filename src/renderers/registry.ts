@@ -29,6 +29,12 @@ import { realtimeCurl } from './realtime/curl.js';
 import { realtimeFallback } from './realtime/fallback.js';
 import { realtimePy } from './realtime/python.js';
 import { realtimeTs } from './realtime/typescript.js';
+import {
+  realtimeConvCurl,
+  realtimeConvFallback,
+  realtimeConvPy,
+  realtimeConvTs,
+} from './realtime/conversation.js';
 import type { RealtimeCtx } from '../wire/realtime.js';
 
 export type Renderer = (proto: CodeProto, ctx: CodeGenCtx) => string;
@@ -82,6 +88,21 @@ export const REALTIME_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
   java: realtimeFallback('java'),
   csharp: realtimeFallback('csharp'),
   ruby: realtimeFallback('ruby'),
+};
+
+/**
+ * Realtime **对话**（conversation / speech-to-speech）渲染器：语言 → 渲染函数。
+ * 与转录表结构一致、函数独立——对话接收循环收音频回放（response.audio.delta）+ 助手文字，
+ * 且不发 commit / response.create（服务端 VAD 自动起回复），故渲染器不能与转录共用。
+ */
+export const REALTIME_CONV_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
+  python: realtimeConvPy,
+  javascript: realtimeConvTs,
+  curl: realtimeConvCurl,
+  go: realtimeConvFallback('go'),
+  java: realtimeConvFallback('java'),
+  csharp: realtimeConvFallback('csharp'),
+  ruby: realtimeConvFallback('ruby'),
 };
 
 /** 媒体渲染器：模态 × 语言。图是单段同步 POST，视频是提交 + 轮询 + 下载三段。 */

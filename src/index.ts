@@ -50,9 +50,24 @@ export {
   splitDataUri,
   unsupportedForProto,
 } from './wire/multimodal.js';
-// realtime 同源缝：消费端真实 WS 客户端取握手 URL / 首帧配置必须走这两个函数
-export { buildRealtimeSession, realtimeWsUrl, type RealtimeCtx } from './wire/realtime.js';
-export { RT_AUDIO_TYPE, RT_CHUNK_MS, RT_INTENT, RT_PATH, RT_SAMPLE_RATE } from './config/realtime.js';
+// realtime 同源缝：消费端真实 WS 客户端取握手 URL / 首帧配置必须走这几个函数。
+// 对话（conversation）的首帧走 buildConversationSession（白名单，禁 transcription），
+// 与转录的 buildRealtimeSession 两条独立 builder，绝不共用。
+export {
+  buildConversationSession,
+  buildRealtimeSession,
+  realtimeWsUrl,
+  type RealtimeCtx,
+} from './wire/realtime.js';
+export {
+  RT_AUDIO_TYPE,
+  RT_CHUNK_MS,
+  RT_CONV_SESSION_TYPE,
+  RT_DEFAULT_VOICE,
+  RT_INTENT,
+  RT_PATH,
+  RT_SAMPLE_RATE,
+} from './config/realtime.js';
 
 // ---- 代码生成 ----
 export { generateCode, generateMediaCode, generateRealtimeCode } from './generate.js';
