@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 scripts/.verify-runtime*/
 .snapshots/
+.gstack/

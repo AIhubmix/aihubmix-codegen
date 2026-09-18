@@ -3,10 +3,16 @@
  *
  * 分发逻辑全在 renderers/registry.ts 的两张表里，本文件只剩查表 + 降级。
  */
-import type { CodeGenCtx, CodeLang, CodeProto, MediaCodeGenOpts } from './types.js';
+import type { CodeGenCtx, CodeLang, CodeProto, MediaCodeGenOpts, RealtimeCodeGenOpts } from './types.js';
 import { MEDIA_PLACEHOLDER } from './config/placeholders.js';
-import { MEDIA_RENDERERS, RENDERERS } from './renderers/registry.js';
+import {
+  MEDIA_RENDERERS,
+  REALTIME_CONV_RENDERERS,
+  REALTIME_RENDERERS,
+  RENDERERS,
+} from './renderers/registry.js';
 import { buildMediaCtx, filterParams } from './wire/media.js';
+import { buildConversationSession, buildRealtimeSession, realtimeWsUrl } from './wire/realtime.js';
 import { curl } from './renderers/curl.js';
 
 export function generateCode(proto: CodeProto, lang: CodeLang, ctx: CodeGenCtx): string {
@@ -30,4 +36,32 @@ export function generateMediaCode(opts: MediaCodeGenOpts): string {
   const byLang = MEDIA_RENDERERS[modality];
   // 未知语言退 curl（通用 REST），与查表化之前的降级一致。
   return (byLang[lang] ?? byLang.curl)(ctx);
+}
+
+/**
+ * 生成 realtime（WebSocket 双向流）请求代码。传输形态与四协议不同，独立入口
+ * （照 media 先例），不进 CodeProto 词表。
+ *
+ * 两条 lane 由 opts.kind 分派，握手 URL 与 session.update 首帧走各自独立的
+ * builder —— 消费端真实 WS 客户端必须走同一对函数（真实请求 = Get Code 同源）：
+ * - transcription（缺省）：realtimeWsUrl(带 intent) + buildRealtimeSession（拼 transcription）。
+ * - conversation：realtimeWsUrl(去 intent) + buildConversationSession（白名单，禁 transcription）。
+ *   对话帧带 input.transcription 会被网关 1008 关整条会话，故两条 builder 绝不共用。
+ */
+export function generateRealtimeCode(opts: RealtimeCodeGenOpts): string {
+  if (opts.kind === 'conversation') {
+    const ctx = {
+      kind: 'conversation' as const,
+      url: realtimeWsUrl(opts.baseUrl, opts.modelId, 'conversation'),
+      session: buildConversationSession(opts),
+    };
+    // 未知语言退 curl 格（wscat 连通性说明总可读），与另两张表的降级一致。
+    return (REALTIME_CONV_RENDERERS[opts.lang] ?? REALTIME_CONV_RENDERERS.curl)(ctx);
+  }
+  const ctx = {
+    kind: 'transcription' as const,
+    url: realtimeWsUrl(opts.baseUrl, opts.modelId),
+    session: buildRealtimeSession(opts),
+  };
+  return (REALTIME_RENDERERS[opts.lang] ?? REALTIME_RENDERERS.curl)(ctx);
 }

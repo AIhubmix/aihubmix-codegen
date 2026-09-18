@@ -1,6 +1,6 @@
 {
   "name": "@aihubmix/codegen",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Pure, isomorphic request/code generator for the AIHubMix gateway: 4 protocols x 7 languages. One wire body feeds both the generated snippet and the real request. No transport, no DOM — capabilities and base URL are injected.",
   "type": "module",
   "license": "MIT",

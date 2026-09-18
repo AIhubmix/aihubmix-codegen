@@ -25,6 +25,17 @@ import { mediaImageJava, mediaVideoJava } from './media/java.js';
 import { mediaImagePy, mediaVideoPy } from './media/python.js';
 import { mediaImageRuby, mediaVideoRuby } from './media/ruby.js';
 import { mediaImageTs, mediaVideoTs } from './media/typescript.js';
+import { realtimeCurl } from './realtime/curl.js';
+import { realtimeFallback } from './realtime/fallback.js';
+import { realtimePy } from './realtime/python.js';
+import { realtimeTs } from './realtime/typescript.js';
+import {
+  realtimeConvCurl,
+  realtimeConvFallback,
+  realtimeConvPy,
+  realtimeConvTs,
+} from './realtime/conversation.js';
+import type { RealtimeCtx } from '../wire/realtime.js';
 
 export type Renderer = (proto: CodeProto, ctx: CodeGenCtx) => string;
 
@@ -61,6 +72,38 @@ export const RENDERERS: Record<CodeLang, Partial<Record<CodeProto, Renderer>> & 
 };
 
 export type MediaRenderer = (ctx: MediaCtx) => string;
+
+export type RealtimeRenderer = (ctx: RealtimeCtx) => string;
+
+/**
+ * Realtime 渲染器：语言 → 渲染函数（WS 传输形态，独立于 CodeProto 表）。
+ * a-lite 决策：python/typescript 精品 + curl 出 wscat 说明；go/java/csharp/ruby
+ * 先给可行动的降级注释块（不空、不冒充 HTTP），完整模板后补。
+ */
+export const REALTIME_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
+  python: realtimePy,
+  javascript: realtimeTs,
+  curl: realtimeCurl,
+  go: realtimeFallback('go'),
+  java: realtimeFallback('java'),
+  csharp: realtimeFallback('csharp'),
+  ruby: realtimeFallback('ruby'),
+};
+
+/**
+ * Realtime **对话**（conversation / speech-to-speech）渲染器：语言 → 渲染函数。
+ * 与转录表结构一致、函数独立——对话接收循环收音频回放（response.audio.delta）+ 助手文字，
+ * 且不发 commit / response.create（服务端 VAD 自动起回复），故渲染器不能与转录共用。
+ */
+export const REALTIME_CONV_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
+  python: realtimeConvPy,
+  javascript: realtimeConvTs,
+  curl: realtimeConvCurl,
+  go: realtimeConvFallback('go'),
+  java: realtimeConvFallback('java'),
+  csharp: realtimeConvFallback('csharp'),
+  ruby: realtimeConvFallback('ruby'),
+};
 
 /** 媒体渲染器：模态 × 语言。图是单段同步 POST，视频是提交 + 轮询 + 下载三段。 */
 export const MEDIA_RENDERERS: Record<MediaCodeGenOpts['modality'], Record<CodeLang, MediaRenderer>> = {

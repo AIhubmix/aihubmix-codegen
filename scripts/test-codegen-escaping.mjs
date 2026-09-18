@@ -201,6 +201,36 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     });
   }
 
+  // realtime 半边：EVIL 经 prompt/keywords 注入 session.update（自由文本 → 转义面），过真语法校验
+  const rtOpts = (lang) => ({
+    baseUrl: 'https://api.inferera.com', modelId: 'gpt-live-transcribe',
+    prompt: EVIL, keywords: [EVIL], languages: ['en'], lang,
+  });
+  if (!pyOk) { skip('python realtime', 'no python3'); }
+  else check('python realtime compiles', () => {
+    const f = join(d, 'rt.py'); writeFileSync(f, gen.generateRealtimeCode(rtOpts('python')));
+    execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+  });
+  check('javascript realtime node --check 通过', () => {
+    const f = join(d, 'rt.mjs'); writeFileSync(f, gen.generateRealtimeCode(rtOpts('javascript')));
+    execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
+  });
+
+  // realtime 对话半边：EVIL 经 instructions/voice（自由文本 → 转义面）注入 session.update，过真语法校验
+  const convOpts = (lang) => ({
+    kind: 'conversation', baseUrl: 'https://api.inferera.com', modelId: 'gpt-realtime-2.1',
+    instructions: EVIL, voice: EVIL, lang,
+  });
+  if (!pyOk) { skip('python realtime conversation', 'no python3'); }
+  else check('python realtime conversation compiles', () => {
+    const f = join(d, 'rt-conv.py'); writeFileSync(f, gen.generateRealtimeCode(convOpts('python')));
+    execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+  });
+  check('javascript realtime conversation node --check 通过', () => {
+    const f = join(d, 'rt-conv.mjs'); writeFileSync(f, gen.generateRealtimeCode(convOpts('javascript')));
+    execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
+  });
+
   console.log(`\n结果：${fails ? `${fails} FAIL` : '全部通过'}${skips ? `，${skips} skip` : ''}`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('测试 harness 异常：', e); process.exit(2); });
