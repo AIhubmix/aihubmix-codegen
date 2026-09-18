@@ -21,38 +21,45 @@ export const DECISION_PATH = '/v1/systemone';
  */
 export const DECISION_TYPES = ['noul', 'choice', 'score'] as const;
 
-/** 占位 state：结构化程序状态（官方主用形态），用户没填时让示例仍能直接跑通。 */
-export const DECISION_STATE_PLACEHOLDER: Record<string, string> = {
-  subject: 'Duplicate charge',
-  message: 'I was charged twice for my subscription this month. Please fix this today.',
-};
+/**
+ * 占位 state：一段原样的用户来信。
+ *
+ * 官方两种形态都合法（自然语言 / 结构化程序状态），示例取**自然语言**这一种：
+ * 决策面最常见的用法就是拿一段没整理过的文本直接问，省掉「先自己解析成字段」那步。
+ */
+export const DECISION_STATE_PLACEHOLDER =
+  'Hi, I have been trying to connect my Stripe account for 3 days and it keeps failing. I am losing sales. Please help ASAP.';
 
 /**
  * 占位 questions：三种原语各一，同一次请求里混着问（这正是 decision 面的卖点——
- * 所有问题针对同一个 state 并行、互相隔离地评估）。
+ * 所有问题针对同一个 state 并行、互相隔离地评估），且三题共同构成一个完整场景：
+ * 工单分诊 —— 派给谁 / 客户多气 / 急不急。
  *
- * 键名（is_spam / sentiment / urgency）由调用方自取，响应 answers 用同一套键回填，
- * 所以示例里的键要一眼能对上响应。
+ * 键名（department / frustration / is_urgent）由调用方自取，响应 answers 用同一套键
+ * 回填，所以示例里的键要一眼能对上响应。
+ *
+ * 三题也顺带把 criteria 的三种写法示范全了：
+ *  · choice —— **对象**：键是可选项名（回来的 `choice` 就是其中之一），值是这一项的释义；
+ *  · score  —— **数组**：下标即档位号，响应的 legend / probabilities 用同一套下标当键；
+ *  · noul   —— 可以**整个省掉** criteria，判据写在 instructions 里就够。
  */
 export const DECISION_QUESTIONS_PLACEHOLDER: Record<string, DecisionQuestion> = {
-  is_spam: {
-    type: 'noul',
-    instructions: 'Is this message spam?',
-    criteria: { true: 'Unsolicited or fraudulent', false: 'A genuine customer message' },
-  },
-  sentiment: {
+  department: {
     type: 'choice',
-    instructions: "What is the sender's tone?",
+    instructions: 'Which team should handle this',
     criteria: {
-      calm: 'A neutral or polite message',
-      excited: 'An enthusiastic or eager message',
-      angry: 'An upset or hostile message',
+      billing: 'Payment or subscription issues',
+      technical: 'Bugs or integration problems',
+      sales: 'Pricing or account questions',
     },
   },
-  urgency: {
-    // score 的 criteria 是数组：下标即档位号，响应的 legend / probabilities 用同一套下标当键。
+  frustration: {
     type: 'score',
-    instructions: 'How urgently does this need a reply?',
-    criteria: ['Can wait', 'Should be handled this week', 'Needs a reply today'],
+    instructions: 'How frustrated the customer appears',
+    criteria: ['Calm, just stating facts', 'Frustrated but civil', 'Very angry, strong language'],
+  },
+  is_urgent: {
+    type: 'noul',
+    instructions: 'The message conveys urgency or time-sensitivity',
   },
 };
