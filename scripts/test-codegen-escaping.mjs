@@ -287,6 +287,88 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error('与 buildDecisionBody 不一致');
   });
 
+  // OpenAI decisions 半边（/v1/decisions）：EVIL 经 input 文本、题目 name / instructions、
+  // choices 的 value / description、levels 的 label / description 注入 —— 全是自由文本。
+  // 另带一个布尔选项值和一条 user 消息形态的 input（input_text + input_image），两种 input 都过一遍。
+  // python / javascript 是 SDK 调用（body 键渲染成关键字参数 / 对象字面量），转义路径与另几门的
+  // JSON 字面量不同，所以各自单独做语法校验。
+  const oaiDecOpts = (lang, input = EVIL) => ({
+    baseUrl: 'https://api.inferera.com', modelId: 'gpt-6-luna',
+    input,
+    questions: [
+      { type: 'predicate', name: EVIL, instructions: EVIL },
+      { type: 'choice', name: 'c', instructions: EVIL, choices: [{ value: EVIL, description: EVIL }, { value: false }] },
+      { type: 'score', name: 's', instructions: EVIL, levels: [{ label: EVIL, description: EVIL }, { label: 'ok' }] },
+    ],
+    lang,
+  });
+  const oaiMessages = [{
+    role: 'user',
+    content: [
+      { type: 'input_text', text: EVIL },
+      { type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: 'low' },
+    ],
+  }];
+
+  for (const [label, input] of [['文本 input', EVIL], ['消息 input', oaiMessages]]) {
+    if (!pyOk) { skip(`python openai-decision / ${label}`, 'no python3'); }
+    else check(`python openai-decision compiles / ${label}`, () => {
+      const f = join(d, 'oai-dec.py'); writeFileSync(f, gen.generateOpenAIDecisionCode(oaiDecOpts('python', input)));
+      execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+    });
+    check(`javascript openai-decision node --check 通过 / ${label}`, () => {
+      const f = join(d, 'oai-dec.mjs'); writeFileSync(f, gen.generateOpenAIDecisionCode(oaiDecOpts('javascript', input)));
+      execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
+    });
+    if (!rbOk) { skip(`ruby openai-decision / ${label}`, 'no ruby'); }
+    else check(`ruby openai-decision syntax / ${label}`, () => {
+      const c = gen.generateOpenAIDecisionCode(oaiDecOpts('ruby', input));
+      const f = join(d, 'oai-dec.rb'); writeFileSync(f, c);
+      execFileSync('ruby', ['-c', f], { stdio: 'ignore' });
+      // `#{system("id")}` 在双引号 heredoc 里语法合法、运行时执行 —— ruby -c 抓不到，只能锁死单引号 heredoc。
+      if (!c.includes("request.body = <<~'JSON'")) throw new Error('body 不在单引号 heredoc 里，EVIL 的 #{} 会被插值执行');
+    });
+  }
+
+  check('java openai-decision body 解转义后合法 JSON 且逐字等于 buildOpenAIDecisionBody', () => {
+    const opts = oaiDecOpts('java');
+    const m = gen.generateOpenAIDecisionCode(opts).match(/String body = """\n([\s\S]*?)\n\s*""";/);
+    if (!m) throw new Error('未找到 Java 文本块');
+    const got = JSON.parse(m[1].replace(/\\\\/g, '\\').replace(/^\s+/gm, ''));
+    if (JSON.stringify(got) !== JSON.stringify(gen.buildOpenAIDecisionBody(opts))) throw new Error('与 buildOpenAIDecisionBody 不一致');
+  });
+  check('java openai-decision 代码部分无反斜杠', () => {
+    const bad = javaCodeOnly(gen.generateOpenAIDecisionCode(oaiDecOpts('java')))
+      .split('\n').filter((l) => l.includes('\\'));
+    if (bad.length) throw new Error(`出现反斜杠(双层转义陷阱)：${bad.join(' | ')}`);
+  });
+  check('java openai-decision 无紧贴单词的双引号对（转义塌陷指纹）', () => {
+    const bad = javaCodeOnly(gen.generateOpenAIDecisionCode(oaiDecOpts('java')))
+      .split('\n').filter((l) => /\w""|""\w/.test(l));
+    if (bad.length) throw new Error(`出现 ""：多半是 \\" 在 JS 模板里塌了一层：${bad.join(' | ')}`);
+  });
+
+  check('curl openai-decision 的 -d 段还原后逐字等于 buildOpenAIDecisionBody', () => {
+    const opts = oaiDecOpts('curl');
+    const m = gen.generateOpenAIDecisionCode(opts).match(/-d '([\s\S]*)'$/);
+    if (!m) throw new Error('未找到 -d 段');
+    const got = JSON.parse(m[1].replace(/'\\''/g, "'"));
+    if (JSON.stringify(got) !== JSON.stringify(gen.buildOpenAIDecisionBody(opts))) throw new Error('与 buildOpenAIDecisionBody 不一致');
+  });
+
+  // go 格是 net/http + 标准库，不拉任何 module，离线也能 go build；body 在 raw string（反引号）里，
+  // EVIL 正好带反引号 —— goRawSafe 失效就当场编译失败。
+  if (!has('go')) {
+    skip('go openai-decision compiles', 'no go');
+  } else {
+    check('go openai-decision compiles（body 在 raw string 里，EVIL 带反引号）', () => {
+      const goDir = mkdtempSync(join(tmpdir(), 'cg-go-oai-dec-'));
+      execFileSync('go', ['mod', 'init', 'oaideccheck'], { cwd: goDir, stdio: 'ignore' });
+      writeFileSync(join(goDir, 'main.go'), gen.generateOpenAIDecisionCode(oaiDecOpts('go')));
+      execFileSync('go', ['build', '-o', join(goDir, 'out.bin'), '.'], { cwd: goDir, stdio: 'pipe' });
+    });
+  }
+
   console.log(`\n结果：${fails ? `${fails} FAIL` : '全部通过'}${skips ? `，${skips} skip` : ''}`);
   process.exit(fails ? 1 : 0);
 })().catch((e) => { console.error('测试 harness 异常：', e); process.exit(2); });

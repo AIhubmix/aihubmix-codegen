@@ -44,6 +44,14 @@ import { decisionRuby } from './decision/ruby.js';
 import { decisionTs } from './decision/typescript.js';
 import type { RealtimeCtx } from '../wire/realtime.js';
 import type { DecisionCtx } from '../wire/decision.js';
+import { openaiDecisionCs } from './openai-decision/csharp.js';
+import { openaiDecisionCurl } from './openai-decision/curl.js';
+import { openaiDecisionGo } from './openai-decision/go.js';
+import { openaiDecisionJava } from './openai-decision/java.js';
+import { openaiDecisionPy } from './openai-decision/python.js';
+import { openaiDecisionRuby } from './openai-decision/ruby.js';
+import { openaiDecisionTs } from './openai-decision/typescript.js';
+import type { OpenAIDecisionCtx } from '../wire/openai-decision.js';
 
 export type Renderer = (proto: CodeProto, ctx: CodeGenCtx) => string;
 
@@ -127,6 +135,23 @@ export const DECISION_RENDERERS: Record<CodeLang, DecisionRenderer> = {
   csharp: decisionCs,
   ruby: decisionRuby,
   curl: decisionCurl,
+};
+
+export type OpenAIDecisionRenderer = (ctx: OpenAIDecisionCtx) => string;
+
+/**
+ * OpenAI Decisions（POST /v1/decisions）渲染器：语言 → 渲染函数。与上面的 DECISION_RENDERERS
+ * 是两个端点、两张表（理由见 config/openai-decision.ts）。python / javascript 走官方 SDK 的
+ * client.decisions.create，其余五门是原生 HTTP —— 七门全量实装，没有降级格。
+ */
+export const OPENAI_DECISION_RENDERERS: Record<CodeLang, OpenAIDecisionRenderer> = {
+  python: openaiDecisionPy,
+  javascript: openaiDecisionTs,
+  go: openaiDecisionGo,
+  java: openaiDecisionJava,
+  csharp: openaiDecisionCs,
+  ruby: openaiDecisionRuby,
+  curl: openaiDecisionCurl,
 };
 
 /** 媒体渲染器：模态 × 语言。图是单段同步 POST，视频是提交 + 轮询 + 下载三段。 */

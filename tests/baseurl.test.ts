@@ -8,7 +8,12 @@
 import { describe, expect, it } from 'vitest';
 import { LANGS } from '../src/config/languages.js';
 import { PROTOCOLS } from '../src/config/protocols.js';
-import { generateCode, generateDecisionCode, generateMediaCode } from '../src/generate.js';
+import {
+  generateCode,
+  generateDecisionCode,
+  generateMediaCode,
+  generateOpenAIDecisionCode,
+} from '../src/generate.js';
 import { ctxWith } from './fixture.js';
 
 const INFERERA = 'https://api.inferera.com';
@@ -50,6 +55,14 @@ describe('ctx.baseUrl 贯穿全部产物', () => {
     }
   });
 
+  it('OpenAI decisions 单元格同样跟着 baseUrl 走（SDK 型的 base_url / baseURL 也算）', () => {
+    for (const lang of LANGS) {
+      const code = generateOpenAIDecisionCode({ baseUrl: INFERERA, modelId: 'gpt-6-luna', lang: lang.id });
+      expect(code, `openai-decision/${lang.id}`).not.toContain('aihubmix.com');
+      expect(code, `openai-decision/${lang.id} 没出现注入的 base`).toContain(INFERERA);
+    }
+  });
+
   it('换 base 只换 base：其余字节逐字相同', () => {
     // 同一 ctx 只改 baseUrl，把新 base 换回旧 base 后必须与原产物完全一致 ——
     // 证明 baseUrl 没有顺带影响路由/鉴权/body 的任何其它判断。
@@ -65,6 +78,12 @@ describe('ctx.baseUrl 贯穿全部产物', () => {
       const a = generateDecisionCode({ ...opts, baseUrl: 'https://aihubmix.com' });
       const b = generateDecisionCode({ ...opts, baseUrl: INFERERA });
       expect(b.split(INFERERA).join('https://aihubmix.com'), `decision/${lang.id}`).toBe(a);
+    }
+    for (const lang of LANGS) {
+      const opts = { modelId: 'gpt-6-luna', lang: lang.id };
+      const a = generateOpenAIDecisionCode({ ...opts, baseUrl: 'https://aihubmix.com' });
+      const b = generateOpenAIDecisionCode({ ...opts, baseUrl: INFERERA });
+      expect(b.split(INFERERA).join('https://aihubmix.com'), `openai-decision/${lang.id}`).toBe(a);
     }
   });
 });
