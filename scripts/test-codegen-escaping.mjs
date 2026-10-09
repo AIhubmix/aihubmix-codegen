@@ -330,6 +330,27 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     });
   }
 
+  // python 格是 SDK 调用：body 写成关键字参数（pyLiteral），不是 JSON。语法校验只证明「能解析」，
+  // 证明不了「发出去的就是 builder 那份」—— 比如嵌套 undefined 被写成 None 照样能编译。所以这里
+  // 让 python 自己把 create(...) 的每个关键字参数 literal_eval 出来，再与 builder 的 JSON 逐字比。
+  if (!pyOk) { skip('python openai-decision kwargs 求值', 'no python3'); }
+  else check('python openai-decision 的 create(...) 关键字参数求值后逐字等于 buildOpenAIDecisionBody', () => {
+    const base = oaiDecOpts('python');
+    const opts = {
+      ...base,
+      questions: [...base.questions, { type: 'choice', instructions: 'x', choices: [{ value: 'a', description: undefined }, { value: true }] }],
+    };
+    const f = join(d, 'oai-dec-kw.py'); writeFileSync(f, gen.generateOpenAIDecisionCode(opts));
+    const py = [
+      'import ast, json, sys',
+      'tree = ast.parse(open(sys.argv[1]).read())',
+      'call = next(n for n in ast.walk(tree) if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "create")',
+      'print(json.dumps({kw.arg: ast.literal_eval(kw.value) for kw in call.keywords}))',
+    ].join('\n');
+    const got = JSON.parse(execFileSync('python3', ['-c', py, f]).toString());
+    if (JSON.stringify(got) !== JSON.stringify(gen.buildOpenAIDecisionBody(opts))) throw new Error('与 buildOpenAIDecisionBody 不一致');
+  });
+
   check('java openai-decision body 解转义后合法 JSON 且逐字等于 buildOpenAIDecisionBody', () => {
     const opts = oaiDecOpts('java');
     const m = gen.generateOpenAIDecisionCode(opts).match(/String body = """\n([\s\S]*?)\n\s*""";/);

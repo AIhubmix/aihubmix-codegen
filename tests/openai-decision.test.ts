@@ -94,21 +94,83 @@ describe('buildOpenAIDecisionBody：请求体形状', () => {
   });
 });
 
-describe('空值判据：没填的不下发（与 /v1/systemone 那一面同一份 isUnset）', () => {
-  it('空串 name / instructions、空数组 choices / levels 都不进 body', () => {
+describe('空值判据：可选字段空值不下发，必填字段只在没提供时不下发', () => {
+  it('可选的 name：空串 / undefined 都不进 body（表单留空 = 不命名）', () => {
     const qs = buildOpenAIDecisionBody({
       modelId: MODEL,
       questions: [
-        { type: 'predicate', name: '', instructions: '' },
+        { type: 'predicate', name: '', instructions: 'a' },
+        { type: 'predicate', name: undefined, instructions: 'b' },
+      ],
+    }).questions as OpenAIDecisionQuestion[];
+    expect(qs).toStrictEqual([
+      { type: 'predicate', instructions: 'a' },
+      { type: 'predicate', instructions: 'b' },
+    ]);
+  });
+
+  it('必填的 instructions / choices / levels：空串、空数组原样下发（spec 允许空串，条数下限交给上游判）', () => {
+    const qs = buildOpenAIDecisionBody({
+      modelId: MODEL,
+      questions: [
+        { type: 'predicate', instructions: '' },
         { type: 'choice', instructions: 'pick', choices: [] },
         { type: 'score', instructions: 'rate', levels: [] },
       ],
     }).questions as OpenAIDecisionQuestion[];
-    expect(qs).toEqual([
-      { type: 'predicate' },
-      { type: 'choice', instructions: 'pick' },
-      { type: 'score', instructions: 'rate' },
+    expect(qs).toStrictEqual([
+      { type: 'predicate', instructions: '' },
+      { type: 'choice', instructions: 'pick', choices: [] },
+      { type: 'score', instructions: 'rate', levels: [] },
     ]);
+  });
+
+  it('必填字段没提供（undefined）时不下发 —— 包不替调用方编内容，缺了由上游 400 说明', () => {
+    const [q] = buildOpenAIDecisionBody({
+      modelId: MODEL,
+      questions: [{ type: 'choice', instructions: undefined, choices: undefined }],
+    }).questions as OpenAIDecisionQuestion[];
+    expect(q).toStrictEqual({ type: 'choice' });
+  });
+
+  it('嵌套的 undefined 被归一掉：body 即发上线的 JSON 形态，SDK 两格不会把它写成 None / null', () => {
+    const opts = {
+      baseUrl: BASE,
+      modelId: MODEL,
+      questions: [
+        {
+          type: 'choice' as const,
+          name: 'c',
+          instructions: 'pick',
+          choices: [{ value: 'a', description: undefined }, { value: 'b' }],
+        },
+      ],
+    };
+    const body = buildOpenAIDecisionBody(opts);
+    expect(body).toStrictEqual(JSON.parse(JSON.stringify(body)));
+    expect((body.questions as OpenAIDecisionQuestion[])[0].choices![0]).toStrictEqual({ value: 'a' });
+    // 只看 create(...) 的参数段：说明注释里本来就写着「null if unnamed」。
+    const callArgs = (code: string) => code.slice(code.indexOf('decisions.create('), code.indexOf('for '));
+    expect(callArgs(generateOpenAIDecisionCode({ ...opts, lang: 'python' }))).not.toContain('None');
+    expect(callArgs(generateOpenAIDecisionCode({ ...opts, lang: 'javascript' }))).not.toMatch(/\bnull\b/);
+  });
+
+  it('返回的 body 不与占位模板常量共享引用（消费端改 body 不会污染下一次生成）', () => {
+    const body = buildOpenAIDecisionBody({ modelId: MODEL });
+    (body.questions as OpenAIDecisionQuestion[])[1].choices!.push({ value: 'mutated' });
+    expect(JSON.stringify(OPENAI_DECISION_QUESTIONS_PLACEHOLDER)).not.toContain('mutated');
+  });
+
+  it('input 类型接受 spec 允许的 detail: null 与显式 type: "message"', () => {
+    // 这条主要是**编译期**断言（tests 在 tsconfig 的 include 里，typecheck 会检查这个字面量）。
+    const messages: OpenAIDecisionMessage[] = [
+      {
+        type: 'message',
+        role: 'user',
+        content: [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA', detail: null }],
+      },
+    ];
+    expect(buildOpenAIDecisionBody({ modelId: MODEL, input: messages }).input).toStrictEqual(messages);
   });
 
   it('布尔选项值 false 不是「没填」（上游支持布尔选项，答案保持布尔类型）', () => {
@@ -201,6 +263,23 @@ describe('同源缝：Get Code 里的 body == buildOpenAIDecisionBody 的输出'
   it('TypeScript SDK 调用：传入的对象字面量即 jsLiteral(body)', () => {
     const code = generateOpenAIDecisionCode({ ...opts, lang: 'javascript' });
     expect(code).toContain(`${OPENAI_DECISION_SDK.javascript.call}(${jsLiteral(buildOpenAIDecisionBody(opts), '')});`);
+  });
+
+  it('TypeScript SDK 调用的对象字面量**求值后**严格等于 curl 发出去的 JSON（不借用同一个渲染函数比）', () => {
+    const tricky = {
+      ...opts,
+      questions: [
+        ...QUESTIONS,
+        { type: 'choice' as const, instructions: 'x', choices: [{ value: false, description: undefined }, { value: true }] },
+      ],
+    };
+    const ts = generateOpenAIDecisionCode({ ...tricky, lang: 'javascript' });
+    const lit = ts.match(/client\.decisions\.create\((\{[\s\S]*?\n\})\);/);
+    expect(lit, '没取到 create(...) 的对象字面量').toBeTruthy();
+    // eslint-disable-next-line no-new-func
+    const evaluated = new Function(`return (${lit![1]});`)();
+    const curl = generateOpenAIDecisionCode({ ...tricky, lang: 'curl' }).match(/-d '([\s\S]*)'$/);
+    expect(evaluated).toStrictEqual(JSON.parse(curl![1].replace(/'\\''/g, "'")));
   });
 
   it('用户输入里的单引号不会截断 curl 命令（shellSafe 生效）', () => {

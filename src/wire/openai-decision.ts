@@ -24,29 +24,38 @@ export interface OpenAIDecisionCtx {
 }
 
 /**
- * 单题清洗：`type` 是判别器恒留；name / instructions / choices / levels 没填就不下发。
- * 键序固定（type → name → instructions → choices → levels），与实测请求同序，示例好读。
+ * 单题清洗：`type` 是判别器恒留，键序固定（type → name → instructions → choices → levels），
+ * 与实测请求同序，示例好读。两类字段两种判据：
+ *  - 可选的 `name`：空串也算没填，不下发（表单里留空的名字框 = 不命名，答案回显 null）；
+ *  - 上游必填的 `instructions`（三种题型）/ `choices`（choice）/ `levels`（score）：只有没提供
+ *    （undefined / null）才不下发，空串、空数组**原样下发**。spec 允许空串 instructions，删掉
+ *    反而把合法请求变成缺必填字段；空数组违反条数下限，同样交给上游 400 说清楚。
  * 不按题型删键：predicate 带了 choices 是调用方的错，交给上游 400 说清楚，包里不悄悄吞掉。
  */
 function cleanQuestion(q: OpenAIDecisionQuestion): OpenAIDecisionQuestion {
   const out: OpenAIDecisionQuestion = { type: q.type };
   if (!isUnset(q.name)) out.name = q.name;
-  if (!isUnset(q.instructions)) out.instructions = q.instructions;
-  if (!isUnset(q.choices)) out.choices = q.choices;
-  if (!isUnset(q.levels)) out.levels = q.levels;
+  if (q.instructions != null) out.instructions = q.instructions;
+  if (q.choices != null) out.choices = q.choices;
+  if (q.levels != null) out.levels = q.levels;
   return out;
 }
 
 /**
  * 组装 OpenAI Decisions 请求体：`{ model, input, questions }`。
- * input / questions 缺省时退占位模板，保证「复制出来就能跑」。
+ * input / questions 缺省或为空时退占位模板，保证「复制出来就能跑」（同 /v1/systemone 的 state）。
+ *
+ * 返回值是**发上线的 JSON 形态**（过一遍 JSON 序列化）：python / typescript 两格是把 body 原样
+ * 写成 SDK 调用的字面量，嵌套对象里的 `undefined` 会被写成 `None` / `null` 发出去（上游只收
+ * 字符串，直接 400），而另外五门 JSON 格会把它省掉 —— 同一份输入两种请求。先归一成 JSON 形态，
+ * 七门语言和消费端真实请求看到的就是同一个对象；顺带切断与占位模板常量的引用共享。
  */
 export function buildOpenAIDecisionBody(
   opts: Pick<OpenAIDecisionCodeGenOpts, 'modelId' | 'input' | 'questions'>,
 ): Record<string, unknown> {
   const input = isUnset(opts.input) ? OPENAI_DECISION_INPUT_PLACEHOLDER : opts.input;
   const raw = isUnset(opts.questions) ? OPENAI_DECISION_QUESTIONS_PLACEHOLDER : opts.questions!;
-  return { model: opts.modelId, input, questions: raw.map(cleanQuestion) };
+  return JSON.parse(JSON.stringify({ model: opts.modelId, input, questions: raw.map(cleanQuestion) }));
 }
 
 /** 组装 OpenAI Decisions 上下文（body 走 buildOpenAIDecisionBody，与真实请求同源）。 */

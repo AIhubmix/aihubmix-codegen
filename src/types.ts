@@ -291,23 +291,24 @@ export interface OpenAIDecisionQuestion {
   type: 'predicate' | 'choice' | 'score';
   /** 问题名，答案里原样回显，用来把答案对回问题。空则不下发。 */
   name?: string;
-  /** 要评估什么：predicate 写成待判断的命题，choice / score 写选择或打分的依据。空则不下发。 */
+  /** 要评估什么：predicate 写成待判断的命题，choice / score 写选择或打分的依据。上游必填；没提供才不下发，空串原样下发。 */
   instructions?: string;
-  /** choice 的候选项。value 是字符串或布尔，答案的 `choice` 保持同一类型。空数组视为未设置。 */
+  /** choice 的候选项（上游必填，2–255 项）。value 是字符串或布尔，答案的 `choice` 保持同一类型。没提供才不下发。 */
   choices?: { value: string | boolean; description?: string }[];
-  /** score 的档位，从低到高；答案的 `score` 是档位下标（从 0 起）的概率加权平均。空数组视为未设置。 */
+  /** score 的档位（上游必填，2–10 档），从低到高；答案的 `score` 是档位下标（从 0 起）的概率加权平均。没提供才不下发。 */
   levels?: { label: string; description?: string }[];
 }
 
-/** OpenAI Decisions 的 input 片段：文本，或图片（`image_url` 用 base64 data URL）。 */
+/** OpenAI Decisions 的 input 片段：文本，或图片（`image_url` 用 base64 data URL；`detail` 缺省 / null 即 auto）。 */
 export type OpenAIDecisionInputPart =
   | { type: 'input_text'; text: string }
-  | { type: 'input_image'; image_url: string; detail?: 'low' | 'high' | 'auto' | 'original' };
+  | { type: 'input_image'; image_url: string; detail?: 'low' | 'high' | 'auto' | 'original' | null };
 
-/** OpenAI Decisions 的 input 消息：只支持 role=user，content 为文本串或片段数组。 */
+/** OpenAI Decisions 的 input 消息：只支持 role=user，content 为文本串或片段数组；`type` 可省（恒为 message）。 */
 export interface OpenAIDecisionMessage {
   role: 'user';
   content: string | OpenAIDecisionInputPart[];
+  type?: 'message';
 }
 
 /** generateOpenAIDecisionCode 的入参（OpenAI Decisions 面，单次 JSON POST，独立于 CodeProto 词表） */
