@@ -12,7 +12,7 @@ import {
   DECISION_QUESTIONS_PLACEHOLDER,
   DECISION_STATE_PLACEHOLDER,
 } from '../config/decision.js';
-import { isEmptyContainer } from './gate.js';
+import { isUnset } from './gate.js';
 
 /** decision 请求上下文（贯穿各语言 renderer）。 */
 export interface DecisionCtx {
@@ -24,17 +24,11 @@ export interface DecisionCtx {
   bodyObj: Record<string, unknown>;
 }
 
-/** 「没填」判据：undefined / null / 空串 / 空容器。空容器那一半与 media 的 filterParams 同源
- *  （`isEmptyContainer`）——`{}` / `[]` 下发过去是**显式空值**，会覆盖默认行为，不是「没填」。 */
-function unset(v: unknown): boolean {
-  return v === undefined || v === null || v === '' || isEmptyContainer(v);
-}
-
 /** 单题清洗：`type` 是判别器恒留；instructions / criteria 没填就不下发。 */
 function cleanQuestion(q: DecisionQuestion): DecisionQuestion {
   const out: DecisionQuestion = { type: q.type };
-  if (!unset(q.instructions)) out.instructions = q.instructions;
-  if (!unset(q.criteria)) out.criteria = q.criteria;
+  if (!isUnset(q.instructions)) out.instructions = q.instructions;
+  if (!isUnset(q.criteria)) out.criteria = q.criteria;
   return out;
 }
 
@@ -45,8 +39,8 @@ function cleanQuestion(q: DecisionQuestion): DecisionQuestion {
 export function buildDecisionBody(
   opts: Pick<DecisionCodeGenOpts, 'modelId' | 'state' | 'questions'>,
 ): Record<string, unknown> {
-  const state = unset(opts.state) ? DECISION_STATE_PLACEHOLDER : opts.state;
-  const raw = unset(opts.questions) ? DECISION_QUESTIONS_PLACEHOLDER : opts.questions!;
+  const state = isUnset(opts.state) ? DECISION_STATE_PLACEHOLDER : opts.state;
+  const raw = isUnset(opts.questions) ? DECISION_QUESTIONS_PLACEHOLDER : opts.questions!;
   const questions = Object.fromEntries(
     Object.entries(raw).map(([key, q]) => [key, cleanQuestion(q)]),
   );

@@ -53,13 +53,18 @@ Protocol → route and auth header are the gateway contract, and live in exactly
 | `messages` | `/v1/messages` | `x-api-key` (+ `anthropic-version`) |
 | `gemini` | `/gemini/v1beta/models/{model}:generateContent` | `x-goog-api-key` |
 
-Three more surfaces sit **beside** the table above rather than inside it. They are different kinds of call, not a fifth way to write the same one, so each has its own entry point and its own renderer table — `CodeProto` stays a closed set of four:
+Four more surfaces sit **beside** the table above rather than inside it. They are different kinds of call, not a fifth way to write the same one, so each has its own entry point and its own renderer table — `CodeProto` stays a closed set of four:
 
 | surface | entry point | shape |
 |---|---|---|
 | media | `generateMediaCode(opts)` | image: one sync POST; video: submit + poll + download |
 | realtime | `generateRealtimeCode(opts)` | WebSocket, transcription or conversation |
 | decision | `generateDecisionCode(opts)` | one POST `/v1/systemone`: a `state` plus typed `questions`, a typed `answers` map back — no text to parse |
+| OpenAI decisions | `generateOpenAIDecisionCode(opts)` | one POST `/v1/decisions`: an `input` (text, or user messages with images) plus an ordered `questions` array; an `answers` array back in question order — `predicate` / `choice` / `score`, or `refusal` |
+
+The two decision surfaces are separate endpoints with separate body shapes (`state` + a keyed `questions{}` map vs. `input` + an ordered `questions[]` array, `noul` vs. `predicate`), so each has its own body builder — `buildDecisionBody()` and `buildOpenAIDecisionBody()` — and its own renderer table. A consumer that sends the real request must use the same builder as the snippet.
+
+For OpenAI decisions, the `python` and `javascript` cells render the official `openai` SDK's `client.decisions.create`, which only exists from **openai-python 3.26.0 / openai-node 7.30.0** (both released 2026-10-06). The first line of those snippets names the minimum version, so it travels with the copied code. The other five languages make a raw HTTP call.
 
 ## `baseUrl` is required, and there is no setter
 
@@ -128,7 +133,7 @@ Enforced by tests in `tests/`, not by convention:
 
 1. **Isomorphic** — no DOM, `window`, network, or env reads anywhere in `src/`.
 2. **Single wire source** — every renderer's body comes from `buildBody()`; no bypass path.
-3. **Facts live once** — auth headers, `anthropic-version`, the four routes, the API-key placeholder, SDK package names and response accessors appear only in `src/config/**`. `tests/fact-localization.test.ts` fails if one leaks into `src/renderers/**` or `scripts/**`.
+3. **Facts live once** — auth headers, `anthropic-version`, the protocol, realtime and decision routes, the API-key placeholder, SDK package names and response accessors appear only in `src/config/**`. `tests/fact-localization.test.ts` fails if one leaks into `src/renderers/**` or `scripts/**`.
 4. **`CAP_GATED_WIRE_KEYS` is derived**, never hand-written twice.
 5. **Wire vocabulary only** — no capability key, verdict, or knowledge-base protocol id appears in `src/`. `tests/vocabulary-isolation.test.ts` fails if one is added back.
 6. **SDK records are self-consistent** — an `Anthropic` client's response accessor may not contain `choices[`, and an OpenAI client's may not contain `content[0].text`.

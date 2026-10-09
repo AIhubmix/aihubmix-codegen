@@ -20,6 +20,7 @@ import {
   generateCode,
   generateDecisionCode,
   generateMediaCode,
+  generateOpenAIDecisionCode,
   PROTOCOLS,
   LANGS,
 } from '../src/index.js';
@@ -86,6 +87,27 @@ describe('生成的 decision 代码里没有中文', () => {
       ];
       for (const opts of variants) {
         expect(cjkLines(generateDecisionCode(opts))).toEqual([]);
+      }
+    });
+  }
+});
+
+describe('生成的 OpenAI decisions 代码里没有中文', () => {
+  for (const lang of LANGS) {
+    it(`openai-decision / ${lang.id}`, () => {
+      // 缺省（走占位模板）与自带输入两种形态，覆盖 body 的两条来源。
+      const variants = [
+        { baseUrl: BASE, modelId: 'gpt-6-luna', lang: lang.id },
+        {
+          baseUrl: BASE,
+          modelId: 'gpt-6-luna',
+          input: 'a support ticket',
+          questions: [{ type: 'predicate' as const, name: 'ok', instructions: 'Is this resolved?' }],
+          lang: lang.id,
+        },
+      ];
+      for (const opts of variants) {
+        expect(cjkLines(generateOpenAIDecisionCode(opts))).toEqual([]);
       }
     });
   }

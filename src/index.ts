@@ -21,6 +21,10 @@ export type {
   LangDef,
   MediaCodeGenOpts,
   Modality,
+  OpenAIDecisionCodeGenOpts,
+  OpenAIDecisionInputPart,
+  OpenAIDecisionMessage,
+  OpenAIDecisionQuestion,
   ProtoDef,
   RealtimeCodeGenOpts,
   StructuredCfg,
@@ -70,6 +74,20 @@ export {
   DECISION_STATE_PLACEHOLDER,
   DECISION_TYPES,
 } from './config/decision.js';
+// OpenAI Decisions（/v1/decisions）同源缝：与上面 /v1/systemone 那一面是两个端点、两个 builder。
+export {
+  buildOpenAIDecisionBody,
+  buildOpenAIDecisionCtx,
+  type OpenAIDecisionCtx,
+} from './wire/openai-decision.js';
+export {
+  OPENAI_DECISION_INPUT_PLACEHOLDER,
+  OPENAI_DECISION_PATH,
+  OPENAI_DECISION_QUESTIONS_PLACEHOLDER,
+  OPENAI_DECISION_SDK,
+  OPENAI_DECISION_TYPES,
+  type OpenAIDecisionSdkDef,
+} from './config/openai-decision.js';
 export {
   RT_AUDIO_TYPE,
   RT_CHUNK_MS,
@@ -85,6 +103,7 @@ export {
   generateCode,
   generateDecisionCode,
   generateMediaCode,
+  generateOpenAIDecisionCode,
   generateRealtimeCode,
 } from './generate.js';
 

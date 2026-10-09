@@ -275,3 +275,52 @@ export interface DecisionCodeGenOpts {
   /** 语言 */
   lang: CodeLang;
 }
+
+/**
+ * OpenAI Decisions（POST /v1/decisions）的单个问题。
+ *
+ * 与上面的 DecisionQuestion（/v1/systemone）是两个端点的两套形状，别混用：这里题型叫
+ * `predicate` 不叫 `noul`；问题是**有序数组**里的一项，`name` 可选（答案原样回显，没给则为
+ * null），答案按提问顺序返回；选项放 `choices[]`、档位放 `levels[]`，没有 `criteria`。
+ *
+ * 同 DecisionQuestion：按三种形状的并集收，不在包里做判别器校验，合法性由上游 400 裁决。
+ * 上游要求（spec）：三种题型都必填 instructions；choice 必填 choices（2–255 项），score 必填
+ * levels（2–10 档，从低到高排列）；请求体不接受多余字段。
+ */
+export interface OpenAIDecisionQuestion {
+  type: 'predicate' | 'choice' | 'score';
+  /** 问题名，答案里原样回显，用来把答案对回问题。空则不下发。 */
+  name?: string;
+  /** 要评估什么：predicate 写成待判断的命题，choice / score 写选择或打分的依据。上游必填；没提供才不下发，空串原样下发。 */
+  instructions?: string;
+  /** choice 的候选项（上游必填，2–255 项）。value 是字符串或布尔，答案的 `choice` 保持同一类型。没提供才不下发。 */
+  choices?: { value: string | boolean; description?: string }[];
+  /** score 的档位（上游必填，2–10 档），从低到高；答案的 `score` 是档位下标（从 0 起）的概率加权平均。没提供才不下发。 */
+  levels?: { label: string; description?: string }[];
+}
+
+/** OpenAI Decisions 的 input 片段：文本，或图片（`image_url` 用 base64 data URL；`detail` 缺省 / null 即 auto）。 */
+export type OpenAIDecisionInputPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: string; detail?: 'low' | 'high' | 'auto' | 'original' | null };
+
+/** OpenAI Decisions 的 input 消息：只支持 role=user，content 为文本串或片段数组；`type` 可省（恒为 message）。 */
+export interface OpenAIDecisionMessage {
+  role: 'user';
+  content: string | OpenAIDecisionInputPart[];
+  type?: 'message';
+}
+
+/** generateOpenAIDecisionCode 的入参（OpenAI Decisions 面，单次 JSON POST，独立于 CodeProto 词表） */
+export interface OpenAIDecisionCodeGenOpts {
+  /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
+  baseUrl: string;
+  /** 模型 ID */
+  modelId: string;
+  /** 所有问题共用的输入：一段文本，或 user 消息数组（可混排图片）。空则用占位模板。 */
+  input?: string | OpenAIDecisionMessage[];
+  /** 有序问题表（上游要求 1–200 题），答案按同一顺序返回。空则用占位模板。 */
+  questions?: OpenAIDecisionQuestion[];
+  /** 语言 */
+  lang: CodeLang;
+}

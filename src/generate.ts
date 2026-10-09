@@ -1,6 +1,7 @@
 /**
  * 分发层：generateCode（4 协议 × 7 语言）/ generateMediaCode（图/视频 × 7 语言）/
- * generateRealtimeCode（转录 + 对话 × 7 语言）/ generateDecisionCode（结构化决策 × 7 语言）。
+ * generateRealtimeCode（转录 + 对话 × 7 语言）/ generateDecisionCode（结构化决策 × 7 语言）/
+ * generateOpenAIDecisionCode（OpenAI Decisions × 7 语言）。
  *
  * 分发逻辑全在 renderers/registry.ts 的几张表里，本文件只剩查表 + 降级。
  */
@@ -10,18 +11,21 @@ import type {
   CodeProto,
   DecisionCodeGenOpts,
   MediaCodeGenOpts,
+  OpenAIDecisionCodeGenOpts,
   RealtimeCodeGenOpts,
 } from './types.js';
 import { MEDIA_PLACEHOLDER } from './config/placeholders.js';
 import {
   DECISION_RENDERERS,
   MEDIA_RENDERERS,
+  OPENAI_DECISION_RENDERERS,
   REALTIME_CONV_RENDERERS,
   REALTIME_RENDERERS,
   RENDERERS,
 } from './renderers/registry.js';
 import { buildDecisionCtx } from './wire/decision.js';
 import { buildMediaCtx, filterParams } from './wire/media.js';
+import { buildOpenAIDecisionCtx } from './wire/openai-decision.js';
 import { buildConversationSession, buildRealtimeSession, realtimeWsUrl } from './wire/realtime.js';
 import { curl } from './renderers/curl.js';
 
@@ -86,4 +90,17 @@ export function generateDecisionCode(opts: DecisionCodeGenOpts): string {
   const ctx = buildDecisionCtx(opts);
   // 未知语言退 curl（通用 REST 总能跑），与另三张表的降级一致。
   return (DECISION_RENDERERS[opts.lang] ?? DECISION_RENDERERS.curl)(ctx);
+}
+
+/**
+ * 生成 OpenAI Decisions 请求代码：单次 POST /v1/decisions，一份 input + 一组有序 questions 进去，
+ * 一个按提问顺序排列的 answers 数组出来。与 generateDecisionCode（/v1/systemone）是两个端点，
+ * 各自独立入口，同样不进 CodeProto 词表。
+ *
+ * body 走 buildOpenAIDecisionBody —— 消费端发真实请求必须走同一个函数（同源缝）。
+ */
+export function generateOpenAIDecisionCode(opts: OpenAIDecisionCodeGenOpts): string {
+  const ctx = buildOpenAIDecisionCtx(opts);
+  // 未知语言退 curl（通用 REST 总能跑），与另几张表的降级一致。
+  return (OPENAI_DECISION_RENDERERS[opts.lang] ?? OPENAI_DECISION_RENDERERS.curl)(ctx);
 }

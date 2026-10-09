@@ -14,3 +14,10 @@ export function isEmptyContainer(v: unknown): boolean {
   if (v !== null && typeof v === 'object') return Object.keys(v as object).length === 0;
   return false;
 }
+
+/** 「没填」判据：undefined / null / 空串 / 空容器。空容器那一半与 media 的 filterParams 同源
+ *  （`isEmptyContainer`）——`{}` / `[]` 下发过去是**显式空值**，会覆盖默认行为，不是「没填」。
+ *  两个 decision 面（/v1/systemone、/v1/decisions）的 body builder 共用这一份。 */
+export function isUnset(v: unknown): boolean {
+  return v === undefined || v === null || v === '' || isEmptyContainer(v);
+}
