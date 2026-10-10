@@ -151,6 +151,12 @@ pnpm verify:codegen # live verification — really runs the generated snippets
 
 `verify:codegen` is the real acceptance criterion: it executes the generated code against a gateway and classifies the result. Pass the base URL in; never hard-code a domain or a key.
 
+By default it covers the four protocols (`--surface text`). The two decision surfaces are verified separately, one surface per run: `--surface decision` (`/v1/systemone`) and `--surface openai-decision` (`/v1/decisions`). For those, a cell only passes when the output carries an answer for **every** question in the package's placeholder template — "no `error` in the response" is not enough. Neither surface streams, so `--stream` is rejected with them. The GitHub workflow exposes the same choice as its `surface` input.
+
+```bash
+VERIFY_API_KEY=… node scripts/verify-codegen.mjs --base https://<gateway> --model gpt-6-luna --surface openai-decision
+```
+
 ## License
 
 MIT

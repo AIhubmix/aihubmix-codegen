@@ -1,6 +1,7 @@
 # verify-codegen —— Get Code 代码示例真实运行验证（TASK-XLWPEZ）。
 # 对指定模型,把包会生成的 协议 × 7 语言 示例逐个真实编译/运行、打网关看返回,
-# 确保给用户的示例「完全正确」。被测物是本仓 src/(包本身,与消费端 live-call/Get Code 同源),
+# 确保给用户的示例「完全正确」。surface 选 decision / openai-decision 时改验决策面
+# (/v1/systemone、/v1/decisions)的 7 门语言示例,不验四协议;缺省 text 与原来完全一样。被测物是本仓 src/(包本身,与消费端 live-call/Get Code 同源),
 # 所以 workflow 必须住本仓——放别处需要复制 codegen,真值分叉。
 # （原先住 playground,被测物是它的 src/lib/codegen.ts;codegen 包化后真值搬到这里,脚本与
 #   workflow 一起迁过来。）
@@ -14,7 +15,7 @@
 name: verify-codegen
 
 # run-name 必须含 external_id:网关按「run-name 含 external_id」对账轮询(与 canon verify 同约定)
-run-name: verify-codegen ${{ inputs.model }}${{ inputs.stream == 'true' && ' (stream)' || '' }} ${{ inputs.external_id }}
+run-name: verify-codegen ${{ inputs.model }}${{ inputs.surface != '' && inputs.surface != 'text' && format(' [{0}]', inputs.surface) || '' }}${{ inputs.stream == 'true' && ' (stream)' || '' }} ${{ inputs.external_id }}
 
 on:
   workflow_dispatch:
@@ -33,6 +34,15 @@ on:
         required: false
         default: 'false'
         type: string
+      surface:
+        description: 'text = 四协议(默认);decision = /v1/systemone;openai-decision = /v1/decisions(决策面无流式)'
+        required: false
+        default: 'text'
+        type: choice
+        options:
+          - text
+          - decision
+          - openai-decision
       external_id:
         description: '网关侧 validation run id(vr-xxx),用于对账;手动触发可留空'
         required: false
@@ -87,8 +97,10 @@ jobs:
         run: pnpm test:cjs-types
 
       # python 示例 import openai/anthropic;runner 裸 python 没有(本地开发机装过所以跑不出)。
+      # openai-decision 的 python 格调 client.decisions(openai-python 3.26.0 起才有),
+      # decision(/v1/systemone)的 python 格用 requests —— 一并装上,版本下限写明。
       - name: Install Python SDKs
-        run: pip install --quiet openai anthropic
+        run: pip install --quiet "openai>=3.26.0" anthropic requests
 
       - name: Run verify-codegen
         env:
@@ -101,6 +113,7 @@ jobs:
           MODEL_INPUT: ${{ inputs.model }}
           BASE_INPUT: ${{ inputs.base }}
           STREAM_INPUT: ${{ inputs.stream }}
+          SURFACE_INPUT: ${{ inputs.surface }}
           TEST_BASE: ${{ vars.VERIFY_TEST_BASE }}
         run: |
           set -o pipefail
@@ -116,12 +129,18 @@ jobs:
           # 与上面的白名单、key 选择是同一处真源,不会漂。
           ARGS=(--model "$MODEL_INPUT" --base "${BASE_INPUT:-https://aihubmix.com}")
           [ "$STREAM_INPUT" = "true" ] && ARGS+=(--stream)
+          # surface 白名单(choice 输入经 API 触发时同样只收这三个值,这里再兜一层)
+          case "${SURFACE_INPUT:-text}" in
+            text) ;;
+            decision|openai-decision) ARGS+=(--surface "$SURFACE_INPUT") ;;
+            *) echo "invalid surface: '$SURFACE_INPUT' (allowed: text, decision, openai-decision)"; exit 1;;
+          esac
           node scripts/verify-codegen.mjs "${ARGS[@]}" 2>&1 | tee verify-codegen-report.txt
 
       - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: verify-codegen-${{ inputs.model }}
+          name: verify-codegen-${{ inputs.model }}${{ inputs.surface != '' && inputs.surface != 'text' && format('-{0}', inputs.surface) || '' }}
           path: verify-codegen-report.txt
           if-no-files-found: warn
