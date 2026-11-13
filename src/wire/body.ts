@@ -6,7 +6,7 @@
  * 做到「面板显示什么 == 请求发什么 == 代码示例出什么」。
  */
 import type { CodeGenCtx, CodeProto } from '../types.js';
-import { SPECIAL_NUM_KEYS } from '../config/wire-policy.js';
+import { MESSAGES_DEFAULT_MAX_TOKENS, SPECIAL_NUM_KEYS } from '../config/wire-policy.js';
 import { CAP_GATED_WIRE_KEYS, emitCapabilities } from './capabilities.js';
 import { inSchema, isEmptyContainer } from './gate.js';
 import { buildMediaContent } from './multimodal.js';
@@ -89,7 +89,8 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
   if (proto === 'messages') {
     const b: Record<string, unknown> = {
       model: model.id,
-      max_tokens: p.max_tokens,
+      // Anthropic 硬性必填：调用方没给上限（基础模式）也必须带上
+      max_tokens: p.max_tokens ?? MESSAGES_DEFAULT_MAX_TOKENS,
     };
     // 显式缓存断点：有 system 则打在 system 文本块；否则打在 user 内容块（Anthropic cache_control）。
     const cc = { type: 'ephemeral' };
@@ -132,7 +133,8 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
       : imgs
         ? [{ role: 'user', content: buildMediaContent('responses', user, imgs, { truncate: true }) }]
         : user;
-    b.max_output_tokens = p.max_tokens;
+    // 上限缺省 = 不下发（基础模式：交给上游默认，见 CodeGenParams.max_tokens）
+    if (p.max_tokens !== undefined) b.max_output_tokens = p.max_tokens;
     if (inSchema(ctx, 'temperature') && +(p.temperature ?? 1) !== 1) b.temperature = +(p.temperature ?? 1);
     if (inSchema(ctx, 'top_p') && +(p.top_p ?? 1) !== 1) b.top_p = +(p.top_p ?? 1);
     emitEnums(b, ctx);
@@ -186,9 +188,11 @@ export function buildBody(proto: CodeProto, ctx: CodeGenCtx): Record<string, unk
   // 出图模型（如 Gemini 图像）走 chat 时必须声明输出模态，否则网关 400 / 不返回图片。
   if (ctx.imageOut) b.modalities = ['text', 'image'];
   // 最大输出：OpenAI 已软弃用 max_tokens → schema 声明 max_completion_tokens 时改用它（以 schema 为准）。
+  // 上限缺省 = 不下发（基础模式：交给上游默认，见 CodeGenParams.max_tokens）。
   if (ctx.paramKeys?.includes('max_completion_tokens') && !ctx.paramKeys.includes('max_tokens')) {
-    b.max_completion_tokens = p.max_completion_tokens ?? p.max_tokens;
-  } else {
+    const v = p.max_completion_tokens ?? p.max_tokens;
+    if (v !== undefined) b.max_completion_tokens = v;
+  } else if (p.max_tokens !== undefined) {
     b.max_tokens = p.max_tokens;
   }
   if (inSchema(ctx, 'temperature') && +(p.temperature ?? 1) !== 1) b.temperature = +(p.temperature ?? 1);
