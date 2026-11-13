@@ -23,3 +23,6 @@ export const PY_OPENAI_NATIVE = new Set([
   'reasoning_effort', 'reasoning', 'verbosity', 'service_tier', 'logit_bias', 'user', 'store',
   'metadata', 'stream_options', 'modalities',
 ]);
+
+/** messages 协议 max_tokens 是 Anthropic 硬性必填；调用方没给上限时用它兜底（buildBody 内建，不靠调用方传对）。 */
+export const MESSAGES_DEFAULT_MAX_TOKENS = 4096;

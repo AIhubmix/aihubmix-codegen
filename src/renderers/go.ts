@@ -188,9 +188,12 @@ export function goChat(ctx: CodeGenCtx): string {
   // 调用方的 schema 恰好声明了它，gpt-5 系模型在 schema 没声明时就会渲染出 MaxTokens 然后
   // 当场 panic（线上实测复现过）。这里两个触发条件取并集：模型 id 命中，或 schema 明说要它。
   const useMaxCompletion = isReasoning || !!ctx.paramKeys?.includes('max_completion_tokens');
-  const maxField = useMaxCompletion
-    ? `\n\t\t\tMaxCompletionTokens: ${p.max_tokens},`
-    : `\n\t\t\tMaxTokens: ${p.max_tokens},`;
+  // 上限缺省 = 不下发（与 buildBody 同口径，基础模式）
+  const maxField = p.max_tokens === undefined
+    ? ''
+    : useMaxCompletion
+      ? `\n\t\t\tMaxCompletionTokens: ${p.max_tokens},`
+      : `\n\t\t\tMaxTokens: ${p.max_tokens},`;
   // temperature/top_p 仅在 schema 声明且非默认(1)时发 —— 多数模型互斥/锁定，默认值会被拒。
   // 非 1 的取值正是 ReasoningValidator 要拦的那种，所以 reasoning 模型下整条让路。
   const tempField =

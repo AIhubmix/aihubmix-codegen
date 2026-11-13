@@ -95,7 +95,12 @@ export interface EndpointMeta {
 
 /** 数值参数集合（来自参数面板） */
 export interface CodeGenParams {
-  max_tokens: number;
+  /**
+   * 最大输出。**缺省 = 不下发**（chat / responses 不带上限字段，交给上游默认）——
+   * 给 schema 未收录的新模型「基础模式」用：上限未知时宁可不发，也不拿兜底值去撞上游校验。
+   * messages 例外：Anthropic 硬性必填，缺省时补 MESSAGES_DEFAULT_MAX_TOKENS。
+   */
+  max_tokens?: number;
   temperature: number;
   top_p: number;
   top_k?: number;

@@ -3,6 +3,11 @@
 本文件自 0.1.3 起维护；更早版本（0.1.0–0.1.2）的记录见 git commit message。
 发版流程（人工）：bump `package.json` → 更新本文件 → `pnpm test:all` → `npm publish` → 打 tag `v<version>`。
 
+## 0.4.1 — 2026-11-13
+
+- **`CodeGenParams.max_tokens` 改为可选，缺省 = 不下发上限**（TASK-CZ5KYA，playground 基础模式）：schema 未收录的新模型上限未知，调用方不传 `max_tokens` 时 chat 不带 `max_tokens` / `max_completion_tokens`、responses 不带 `max_output_tokens`，交给上游默认；messages 因 Anthropic 硬性必填，缺省补 `MESSAGES_DEFAULT_MAX_TOKENS`（4096）。Go 渲染器同口径省略 `MaxTokens` / `MaxCompletionTokens` 字段。传了上限的调用方行为不变。
+- 门禁：`tests/basic-mode.test.ts`（三协议缺省形状、给值不回归、Go 不渲染上限字段、7 语言 × 三协议示例不含 `undefined`）。
+
 ## 0.4.0 — 2026-10-09
 
 - **新增 OpenAI Decisions（`POST /v1/decisions`）代码生成**：独立入口 `generateOpenAIDecisionCode(opts)`，与 `/v1/systemone` 的 `generateDecisionCode` 是两个端点、两张渲染器表（body 形状、题型名、答案形状都不同），不进 `CodeProto` 词表。
