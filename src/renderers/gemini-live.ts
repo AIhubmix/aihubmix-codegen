@@ -32,19 +32,27 @@ export function geminiLivePy(ctx: GeminiLiveCtx): string {
   const setupStr = pyLiteral(ctx.setup, '        ');
   const avatar = ctx.output === 'avatar';
   const outFile = avatar ? 'avatar_reply.mp4' : `reply_pcm16_${OUT_KHZ}k.raw`;
+  const videoRead = ctx.video
+    ? `
+    # Optional camera frames: JPEG, 768x768 or smaller
+    frames = []
+    for path in ["frame_001.jpg", "frame_002.jpg"]:
+        with open(path, "rb") as f:
+            frames.append(f.read())`
+    : '';
   const videoTask = ctx.video
     ? `
-        # Optional: send camera frames as JPEG at ~${GL_VIDEO_FPS} FPS (768x768 or smaller)
+        # Camera frames go out alongside the audio at ~${GL_VIDEO_FPS} FPS, not after it
         async def send_video():
-            for path in ["frame_001.jpg", "frame_002.jpg"]:
-                with open(path, "rb") as f:
-                    await ws.send(json.dumps({"realtimeInput": {"video": {
-                        "mimeType": "image/jpeg", "data": base64.b64encode(f.read()).decode()}}}))
+            for jpeg in frames:
+                await ws.send(json.dumps({"realtimeInput": {"video": {
+                    "mimeType": "image/jpeg", "data": base64.b64encode(jpeg).decode()}}}))
                 await asyncio.sleep(${1 / GL_VIDEO_FPS})
-
-        asyncio.create_task(send_video())
 `
     : '';
+  const senders = ctx.video
+    ? '[asyncio.create_task(send_audio()), asyncio.create_task(send_video())]'
+    : '[asyncio.create_task(send_audio())]';
   return `# pip install websockets
 import asyncio
 import base64
@@ -56,6 +64,10 @@ import websockets
 URL = "${ctx.url}"
 
 async def main():
+    # Read inputs before connecting, so a missing file fails fast instead of hanging the session
+    with open("audio_pcm16_${IN_KHZ}k.raw", "rb") as f:
+        pcm = f.read()${videoRead}
+
     # websockets >= 13 uses additional_headers; older versions use extra_headers
     async with websockets.connect(
         URL, additional_headers={"Authorization": "Bearer " + ${ENV_KEY_EXPR.python}}, max_size=None
@@ -67,8 +79,6 @@ async def main():
         # 2) Stream your mic as raw PCM16 / ${IN_KHZ}kHz / mono in ~${GL_CHUNK_MS}ms chunks.
         #    Server VAD detects when you stop talking and replies — no commit needed.
         async def send_audio():
-            with open("audio_pcm16_${IN_KHZ}k.raw", "rb") as f:
-                pcm = f.read()
             chunk = ${GL_INPUT_RATE} * 2 * ${GL_CHUNK_MS} // 1000  # ${GL_CHUNK_MS}ms of 16-bit mono samples
             for i in range(0, len(pcm), chunk):
                 await ws.send(json.dumps({"realtimeInput": {"audio": {
@@ -77,28 +87,31 @@ async def main():
                 }}}))
                 await asyncio.sleep(${GL_CHUNK_MS / 1000})  # simulate realtime pacing
             await ws.send(json.dumps({"realtimeInput": {"audioStreamEnd": True}}))
-
-        asyncio.create_task(send_audio())
 ${videoTask}
+        senders = ${senders}
+
         # 3) Receive: ${replyNote(ctx)}.
-        reply = open("${outFile}", "wb")
-        async for msg in ws:
-            evt = json.loads(msg)
-            sc = evt.get("serverContent", {})
-            for part in sc.get("modelTurn", {}).get("parts", []):
-                data = part.get("inlineData", {}).get("data")
-                if data:
-                    reply.write(base64.b64decode(data))
-            if "inputTranscription" in sc:
-                print("[you]", sc["inputTranscription"].get("text", ""))
-            if "outputTranscription" in sc:
-                print(sc["outputTranscription"].get("text", ""), end="", flush=True)
-            if sc.get("interrupted"):
-                print("\\n[interrupted]")  # you talked over the model — flush local playback here
-            if sc.get("turnComplete"):
-                print("\\n[turn complete]")
-                break
-        reply.close()
+        try:
+            with open("${outFile}", "wb") as reply:
+                async for msg in ws:
+                    evt = json.loads(msg)
+                    sc = evt.get("serverContent", {})
+                    for part in sc.get("modelTurn", {}).get("parts", []):
+                        data = part.get("inlineData", {}).get("data")
+                        if data:
+                            reply.write(base64.b64decode(data))
+                    if "inputTranscription" in sc:
+                        print("[you]", sc["inputTranscription"].get("text", ""))
+                    if "outputTranscription" in sc:
+                        print(sc["outputTranscription"].get("text", ""), end="", flush=True)
+                    if sc.get("interrupted"):
+                        print("\\n[interrupted]")  # you talked over the model — flush local playback here
+                    if sc.get("turnComplete"):
+                        print("\\n[turn complete]")
+                        break
+        finally:
+            for task in senders:
+                task.cancel()  # stop streaming once the turn (or the session) ends
 
 asyncio.run(main())`;
 }
@@ -107,66 +120,87 @@ export function geminiLiveTs(ctx: GeminiLiveCtx): string {
   const setupStr = jsLiteral(ctx.setup, '');
   const avatar = ctx.output === 'avatar';
   const outFile = avatar ? 'avatar_reply.mp4' : `reply_pcm16_${OUT_KHZ}k.raw`;
-  const videoBlock = ctx.video
+  const videoRead = ctx.video
     ? `
-  // Optional: send camera frames as JPEG at ~${GL_VIDEO_FPS} FPS (768x768 or smaller)
-  for (const path of ["frame_001.jpg", "frame_002.jpg"]) {
-    const jpeg = await readFile(path);
+// Optional camera frames: JPEG, 768x768 or smaller
+const frames = await Promise.all(["frame_001.jpg", "frame_002.jpg"].map((p) => readFile(p)));`
+    : '';
+  const videoSender = ctx.video
+    ? `
+
+async function sendVideo() {
+  // Camera frames go out alongside the audio at ~${GL_VIDEO_FPS} FPS, not after it
+  for (const jpeg of frames) {
+    if (ws.readyState !== WebSocket.OPEN) return;
     ws.send(JSON.stringify({ realtimeInput: { video: { mimeType: "image/jpeg", data: jpeg.toString("base64") } } }));
     await new Promise((r) => setTimeout(r, ${1000 / GL_VIDEO_FPS}));
   }
-`
+}`
     : '';
+  const startSenders = ctx.video ? 'void sendAudio(); // audio and video stream concurrently\n      void sendVideo();' : 'void sendAudio();';
   return `// npm install ws
 import WebSocket from "ws";
 import { readFile, open } from "node:fs/promises";
 
 // Gemini Live is a WebSocket session: the model must be in the handshake URL.
 const url = "${ctx.url}";
+
+// Read inputs before connecting, so a missing file fails fast instead of hanging the session
+const pcm = await readFile("audio_pcm16_${IN_KHZ}k.raw");${videoRead}
+const reply = await open("${outFile}", "w");
+
 const ws = new WebSocket(url, {
   headers: { Authorization: "Bearer " + ${ENV_KEY_EXPR.javascript} },
 });
 
 // 1) Session config — sent first; stream only after the server answers setupComplete
 const setup = ${setupStr};
-const reply = await open("${outFile}", "w");
-
 ws.on("open", () => ws.send(JSON.stringify(setup)));
 
-async function streamInput() {
+async function sendAudio() {
   // 2) Stream your mic as raw PCM16 / ${IN_KHZ}kHz / mono in ~${GL_CHUNK_MS}ms chunks.
   //    Server VAD detects when you stop talking and replies — no commit needed.
-  const pcm = await readFile("audio_pcm16_${IN_KHZ}k.raw");
   const chunk = (${GL_INPUT_RATE} * 2 * ${GL_CHUNK_MS}) / 1000; // ${GL_CHUNK_MS}ms of 16-bit mono samples
   for (let i = 0; i < pcm.length; i += chunk) {
+    if (ws.readyState !== WebSocket.OPEN) return; // session ended — stop streaming
     ws.send(JSON.stringify({ realtimeInput: { audio: {
       mimeType: "audio/pcm;rate=${GL_INPUT_RATE}",
       data: pcm.subarray(i, i + chunk).toString("base64"),
     } } }));
     await new Promise((r) => setTimeout(r, ${GL_CHUNK_MS})); // simulate realtime pacing
   }
-  ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
-${videoBlock}}
+  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+}${videoSender}
 
 // 3) Receive: ${replyNote(ctx)}.
-ws.on("message", async (data) => {
-  const evt = JSON.parse(String(data));
-  if (evt.setupComplete) return void streamInput();
-  const sc = evt.serverContent ?? {};
-  for (const part of sc.modelTurn?.parts ?? []) {
-    if (part.inlineData?.data) await reply.write(Buffer.from(part.inlineData.data, "base64"));
-  }
-  if (sc.inputTranscription) console.log("[you]", sc.inputTranscription.text ?? "");
-  if (sc.outputTranscription) process.stdout.write(sc.outputTranscription.text ?? "");
-  if (sc.interrupted) console.log("\\n[interrupted]"); // you talked over the model — flush playback
-  if (sc.turnComplete) {
-    console.log("\\n[turn complete]");
-    await reply.close();
-    ws.close(1000);
-  }
+//    Messages are handled one at a time so reply chunks land in the file in arrival order.
+let queue = Promise.resolve();
+ws.on("message", (data) => {
+  queue = queue.then(async () => {
+    const evt = JSON.parse(String(data));
+    if (evt.setupComplete) {
+      ${startSenders}
+      return;
+    }
+    const sc = evt.serverContent ?? {};
+    for (const part of sc.modelTurn?.parts ?? []) {
+      if (part.inlineData?.data) await reply.write(Buffer.from(part.inlineData.data, "base64"));
+    }
+    if (sc.inputTranscription) console.log("[you]", sc.inputTranscription.text ?? "");
+    if (sc.outputTranscription) process.stdout.write(sc.outputTranscription.text ?? "");
+    if (sc.interrupted) console.log("\\n[interrupted]"); // you talked over the model — flush playback
+    if (sc.turnComplete) {
+      console.log("\\n[turn complete]");
+      ws.close(1000);
+    }
+  }).catch((err) => {
+    console.error(err);
+    ws.close();
+  });
 });
 ws.on("close", (code, reason) => {
   if (code !== 1000) console.error("[closed]", code, String(reason));
+  queue = queue.then(() => reply.close()); // close the file only after every queued write
 });`;
 }
 
