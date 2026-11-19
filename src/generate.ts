@@ -10,6 +10,7 @@ import type {
   CodeLang,
   CodeProto,
   DecisionCodeGenOpts,
+  GeminiLiveCodeGenOpts,
   MediaCodeGenOpts,
   OpenAIDecisionCodeGenOpts,
   RealtimeCodeGenOpts,
@@ -17,6 +18,7 @@ import type {
 import { MEDIA_PLACEHOLDER } from './config/placeholders.js';
 import {
   DECISION_RENDERERS,
+  GEMINI_LIVE_RENDERERS,
   MEDIA_RENDERERS,
   OPENAI_DECISION_RENDERERS,
   REALTIME_CONV_RENDERERS,
@@ -24,6 +26,7 @@ import {
   RENDERERS,
 } from './renderers/registry.js';
 import { buildDecisionCtx } from './wire/decision.js';
+import { buildGeminiLiveCtx } from './wire/gemini-live.js';
 import { buildMediaCtx, filterParams } from './wire/media.js';
 import { buildOpenAIDecisionCtx } from './wire/openai-decision.js';
 import { buildConversationSession, buildRealtimeSession, realtimeWsUrl } from './wire/realtime.js';
@@ -103,4 +106,14 @@ export function generateOpenAIDecisionCode(opts: OpenAIDecisionCodeGenOpts): str
   const ctx = buildOpenAIDecisionCtx(opts);
   // 未知语言退 curl（通用 REST 总能跑），与另几张表的降级一致。
   return (OPENAI_DECISION_RENDERERS[opts.lang] ?? OPENAI_DECISION_RENDERERS.curl)(ctx);
+}
+
+/**
+ * 生成 Gemini Live（原生 BidiGenerateContent WebSocket）请求代码。与 generateRealtimeCode 是两套
+ * 线协议，独立入口、独立 builder。握手 URL 与 setup 首帧经 buildGeminiLiveCtx 产出 —— 消费端
+ * 真实 WS 客户端必须走同一组函数（geminiLiveWsUrl / buildGeminiLiveSetup）。
+ */
+export function generateGeminiLiveCode(opts: GeminiLiveCodeGenOpts): string {
+  const ctx = buildGeminiLiveCtx(opts);
+  return (GEMINI_LIVE_RENDERERS[opts.lang] ?? GEMINI_LIVE_RENDERERS.curl)(ctx);
 }

@@ -53,12 +53,13 @@ Protocol → route and auth header are the gateway contract, and live in exactly
 | `messages` | `/v1/messages` | `x-api-key` (+ `anthropic-version`) |
 | `gemini` | `/gemini/v1beta/models/{model}:generateContent` | `x-goog-api-key` |
 
-Four more surfaces sit **beside** the table above rather than inside it. They are different kinds of call, not a fifth way to write the same one, so each has its own entry point and its own renderer table — `CodeProto` stays a closed set of four:
+Five more surfaces sit **beside** the table above rather than inside it. They are different kinds of call, not a fifth way to write the same one, so each has its own entry point and its own renderer table — `CodeProto` stays a closed set of four:
 
 | surface | entry point | shape |
 |---|---|---|
 | media | `generateMediaCode(opts)` | image: one sync POST; video: submit + poll + download |
 | realtime | `generateRealtimeCode(opts)` | WebSocket, transcription or conversation |
+| Gemini Live | `generateGeminiLiveCode(opts)` | native `BidiGenerateContent` WebSocket: a `setup` frame, 16 kHz `realtimeInput` audio / JPEG video / text; spoken reply + transcripts, or a fragmented-MP4 avatar |
 | decision | `generateDecisionCode(opts)` | one POST `/v1/systemone`: a `state` plus typed `questions`, a typed `answers` map back — no text to parse |
 | OpenAI decisions | `generateOpenAIDecisionCode(opts)` | one POST `/v1/decisions`: an `input` (text, or user messages with images) plus an ordered `questions` array; an `answers` array back in question order — `predicate` / `choice` / `score`, or `refusal` |
 
@@ -133,7 +134,7 @@ Enforced by tests in `tests/`, not by convention:
 
 1. **Isomorphic** — no DOM, `window`, network, or env reads anywhere in `src/`.
 2. **Single wire source** — every renderer's body comes from `buildBody()`; no bypass path.
-3. **Facts live once** — auth headers, `anthropic-version`, the protocol, realtime and decision routes, the API-key placeholder, SDK package names and response accessors appear only in `src/config/**`. `tests/fact-localization.test.ts` fails if one leaks into `src/renderers/**` or `scripts/**`.
+3. **Facts live once** — auth headers, `anthropic-version`, the protocol, realtime, Gemini Live and decision routes, the API-key placeholder, SDK package names and response accessors appear only in `src/config/**`. `tests/fact-localization.test.ts` fails if one leaks into `src/renderers/**` or `scripts/**`.
 4. **`CAP_GATED_WIRE_KEYS` is derived**, never hand-written twice.
 5. **Wire vocabulary only** — no capability key, verdict, or knowledge-base protocol id appears in `src/`. `tests/vocabulary-isolation.test.ts` fails if one is added back.
 6. **SDK records are self-consistent** — an `Anthropic` client's response accessor may not contain `choices[`, and an OpenAI client's may not contain `content[0].text`.

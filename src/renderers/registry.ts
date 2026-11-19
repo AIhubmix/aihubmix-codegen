@@ -42,7 +42,14 @@ import { decisionJava } from './decision/java.js';
 import { decisionPy } from './decision/python.js';
 import { decisionRuby } from './decision/ruby.js';
 import { decisionTs } from './decision/typescript.js';
+import {
+  geminiLiveCurl,
+  geminiLiveFallback,
+  geminiLivePy,
+  geminiLiveTs,
+} from './gemini-live.js';
 import type { RealtimeCtx } from '../wire/realtime.js';
+import type { GeminiLiveCtx } from '../wire/gemini-live.js';
 import type { DecisionCtx } from '../wire/decision.js';
 import { openaiDecisionCs } from './openai-decision/csharp.js';
 import { openaiDecisionCurl } from './openai-decision/curl.js';
@@ -119,6 +126,21 @@ export const REALTIME_CONV_RENDERERS: Record<CodeLang, RealtimeRenderer> = {
   java: realtimeConvFallback('java'),
   csharp: realtimeConvFallback('csharp'),
   ruby: realtimeConvFallback('ruby'),
+};
+
+/**
+ * Gemini Live（原生 BidiGenerateContent）渲染器：语言 → 渲染函数。线协议与 OpenAI realtime 不同，
+ * 独立一张表；精品格 python / typescript，curl 出 wscat 说明，其余为降级注释块。
+ */
+export type GeminiLiveRenderer = (ctx: GeminiLiveCtx) => string;
+export const GEMINI_LIVE_RENDERERS: Record<CodeLang, GeminiLiveRenderer> = {
+  python: geminiLivePy,
+  javascript: geminiLiveTs,
+  curl: geminiLiveCurl,
+  go: geminiLiveFallback('go'),
+  java: geminiLiveFallback('java'),
+  csharp: geminiLiveFallback('csharp'),
+  ruby: geminiLiveFallback('ruby'),
 };
 
 export type DecisionRenderer = (ctx: DecisionCtx) => string;
