@@ -3,6 +3,18 @@
 本文件自 0.1.3 起维护；更早版本（0.1.0–0.1.2）的记录见 git commit message。
 发版流程（人工）：bump `package.json` → 更新本文件 → `pnpm test:all` → `npm publish` → 打 tag `v<version>`。
 
+## 0.5.0 — 2026-11-19
+
+- **新增 Gemini Live（原生 BidiGenerateContent WebSocket）代码生成**（TASK-9Y24X9）：独立入口 `generateGeminiLiveCode(opts)`，与 OpenAI realtime 的 `generateRealtimeCode` 是两套线协议（握手路径、`setup` 首帧、16kHz `realtimeInput.audio`），不复用其 builder / 渲染器。
+- 同源缝出口：`geminiLiveWsUrl` / `buildGeminiLiveSetup` / `buildGeminiLiveCtx`，以及输入帧 `geminiLiveAudioFrame` / `geminiLiveVideoFrame` / `geminiLiveTextFrame` / `geminiLiveAudioStreamEnd`。消费端真实 WS 客户端必须走它们。
+- `setup` 形态（aihubmix.com 生产实测 gemini-3.8-live / gemini-2.5-flash-live）：
+  - 回复只有两种：`output:'audio'`（缺省，`responseModalities:["AUDIO"]`，文字走 `outputAudioTranscription`）与 `output:'avatar'`（恰为 `["VIDEO"]` + `avatarConfig.avatarName`，下行为单条 fMP4，H.264 + AAC 同流）。**不提供 `["TEXT"]`**：两个模型都会被上游 1007 关会话。
+  - 转写缺省开（`transcripts:false` 关）；`voice` / `instructions` / `mediaResolution` 空则不拼；`maxOutputTokens` 不拼（网关缺省 2048）；`avatarName` 空回落 `GL_AVATARS[0]`。
+- 常量：`GL_PATH` / `GL_INPUT_RATE` / `GL_INPUT_AUDIO_MIME` / `GL_OUTPUT_RATE` / `GL_VIDEO_MIME` / `GL_VIDEO_FPS` / `GL_VIDEO_MAX_EDGE` / `GL_AVATAR_MIME` / `GL_AVATARS`（实测可用 Jay / Ben）/ `GL_CHUNK_MS`。
+- 语言矩阵：python（websockets）/ typescript（node ws）精品格；curl 出 wscat 说明；go / java / csharp / ruby 为降级注释块。python / typescript 生成物已对 aihubmix.com 生产真跑（语音、数字人各一轮）。
+- 示例时序（审查修正）：typescript 串行消费下行消息，回复分片按到达顺序落盘，队列写完才关文件；摄像头帧与音频在 `setupComplete` 后并发发送，会话关闭即停发；两种语言都在连接前读取输入文件，缺文件直接报错退出，不再挂住会话。`tests/gemini-live-run.test.ts` 用假 ws 真跑 typescript 产物锁住这三点。
+- 门禁：`tests/gemini-live.test.ts`（URL、setup 红线、输入帧、7 语言 × 两种回复防伪、换 base 逐字）；`fact-localization` 增 `BidiGenerateContent` 棘轮；逃逸脚本增 gemini-live python / javascript 真语法校验（EVIL 经 instructions / voice / avatarName 注入）。
+
 ## 0.4.1 — 2026-11-13
 
 - **`CodeGenParams.max_tokens` 改为可选，缺省 = 不下发上限**（TASK-CZ5KYA，playground 基础模式）：schema 未收录的新模型上限未知，调用方不传 `max_tokens` 时 chat 不带 `max_tokens` / `max_completion_tokens`、responses 不带 `max_output_tokens`，交给上游默认；messages 因 Anthropic 硬性必填，缺省补 `MESSAGES_DEFAULT_MAX_TOKENS`（4096）。Go 渲染器同口径省略 `MaxTokens` / `MaxCompletionTokens` 字段。传了上限的调用方行为不变。

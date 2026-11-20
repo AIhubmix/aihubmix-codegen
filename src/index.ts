@@ -15,6 +15,7 @@ export type {
   CodeLang,
   CodeProto,
   DecisionCodeGenOpts,
+  GeminiLiveCodeGenOpts,
   DecisionQuestion,
   EndpointMeta,
   ImagePart,
@@ -65,6 +66,30 @@ export {
   realtimeWsUrl,
   type RealtimeCtx,
 } from './wire/realtime.js';
+// Gemini Live 同源缝：原生 BidiGenerateContent 的握手 URL / setup 首帧 / 输入帧。
+// 与上面 OpenAI realtime 是两套线协议，独立 builder，绝不共用。
+export {
+  buildGeminiLiveCtx,
+  buildGeminiLiveSetup,
+  geminiLiveAudioFrame,
+  geminiLiveAudioStreamEnd,
+  geminiLiveTextFrame,
+  geminiLiveVideoFrame,
+  geminiLiveWsUrl,
+  type GeminiLiveCtx,
+} from './wire/gemini-live.js';
+export {
+  GL_AVATAR_MIME,
+  GL_AVATARS,
+  GL_CHUNK_MS,
+  GL_INPUT_AUDIO_MIME,
+  GL_INPUT_RATE,
+  GL_OUTPUT_RATE,
+  GL_PATH,
+  GL_VIDEO_FPS,
+  GL_VIDEO_MAX_EDGE,
+  GL_VIDEO_MIME,
+} from './config/gemini-live.js';
 // decision 同源缝：消费端真实请求的 body 必须走 buildDecisionBody，不许旁路拼
 // —— 否则「Get Code 里写的」与「点发送真发出去的」会各自演化。
 export { buildDecisionBody, buildDecisionCtx, type DecisionCtx } from './wire/decision.js';
@@ -102,6 +127,7 @@ export {
 export {
   generateCode,
   generateDecisionCode,
+  generateGeminiLiveCode,
   generateMediaCode,
   generateOpenAIDecisionCode,
   generateRealtimeCode,

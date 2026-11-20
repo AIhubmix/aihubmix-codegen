@@ -231,6 +231,23 @@ function skip(name, why) { skips++; console.log(`SKIP ${name} (${why})`); }
     execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
   });
 
+  // Gemini Live 半边：EVIL 经 instructions/voice/avatarName（自由文本 → 转义面）注入 setup，过真语法校验
+  const glOpts = (lang, output) => ({
+    baseUrl: 'https://api.inferera.com', modelId: 'gemini-3.8-live',
+    instructions: EVIL, voice: EVIL, avatarName: EVIL, output, video: true, lang,
+  });
+  for (const output of ['audio', 'avatar']) {
+    if (!pyOk) { skip(`python gemini-live ${output}`, 'no python3'); }
+    else check(`python gemini-live ${output} compiles`, () => {
+      const f = join(d, `gl-${output}.py`); writeFileSync(f, gen.generateGeminiLiveCode(glOpts('python', output)));
+      execFileSync('python3', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1]).read())', f], { stdio: 'ignore' });
+    });
+    check(`javascript gemini-live ${output} node --check 通过`, () => {
+      const f = join(d, `gl-${output}.mjs`); writeFileSync(f, gen.generateGeminiLiveCode(glOpts('javascript', output)));
+      execFileSync(process.execPath, ['--check', f], { stdio: 'ignore' });
+    });
+  }
+
   // decision 半边：EVIL 经 state 与 questions 的 instructions/criteria（全是自由文本 →
   // 转义面）注入 body。criteria 的**键名**也吃用户输入，是另三个面没有的形态 ——
   // 键名进 JSON 的转义路径与值相同，但 ruby 的 `#{}` 插值、java 文本块都会一并经过。

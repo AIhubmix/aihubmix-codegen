@@ -226,6 +226,36 @@ export interface RealtimeCodeGenOpts {
   lang: CodeLang;
 }
 
+/**
+ * generateGeminiLiveCode 的入参（Gemini Live 原生 BidiGenerateContent，WS 传输形态）。
+ * 与 RealtimeCodeGenOpts 是两套线协议，独立入参、独立 builder，绝不共用。
+ */
+export interface GeminiLiveCodeGenOpts {
+  /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
+  baseUrl: string;
+  /** 模型 ID（落握手 query 与 setup.model，二者必须一致）。 */
+  modelId: string;
+  /**
+   * 回复形态：'audio'（缺省，语音 + 转写）| 'avatar'（数字人 fMP4 视频，仅支持该能力的模型）。
+   * 不提供纯文字：responseModalities=["TEXT"] 会被上游关会话，文字走 outputAudioTranscription。
+   */
+  output?: 'audio' | 'avatar';
+  /** 预置数字人形象（output='avatar' 生效）。缺省 GL_AVATARS[0]。 */
+  avatarName?: string;
+  /** 预置音色（落 generationConfig.speechConfig；空则用模型默认音色）。 */
+  voice?: string;
+  /** 系统指令（落 setup.systemInstruction；空则不拼）。 */
+  instructions?: string;
+  /** 输入/输出语音转写开关，缺省 true。 */
+  transcripts?: boolean;
+  /** 视频帧分辨率档位（空则不拼，由上游默认）。 */
+  mediaResolution?: 'MEDIA_RESOLUTION_LOW' | 'MEDIA_RESOLUTION_MEDIUM' | 'MEDIA_RESOLUTION_HIGH';
+  /** 示例是否演示推送摄像头 JPEG 帧（只影响示例代码，不影响 setup）。 */
+  video?: boolean;
+  /** 语言 */
+  lang: CodeLang;
+}
+
 /** generateMediaCode 的入参 */
 export interface MediaCodeGenOpts {
   /** 网关根地址，不带尾斜杠。必填，理由同 CodeGenCtx.baseUrl。 */
