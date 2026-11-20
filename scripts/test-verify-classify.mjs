@@ -4,7 +4,7 @@
  * 真错信封(对象/字符串/中文)、traceback、HTTP 状态码仍判失败。
  *   node scripts/test-verify-classify.mjs
  */
-import { classify } from './verify-codegen.mjs';
+import { classify, missingAnswers } from './verify-codegen.mjs';
 
 let pass = 0, fail = 0;
 // 期望 want: true=通过(ok===true) / false=失败(ok===false)
@@ -66,6 +66,35 @@ t('空输出 exit 1', { code: 1, out: '' }, false);
 console.log('\n裸数字不再触发(反例保护)：');
 // 纯文本内容恰含 503/429 这种数字,但非状态码语境 → 不判失败
 t('纯文本含孤立数字 503', { code: 0, out: 'the answer is 503 ok' }, true);
+
+console.log('\n决策面（--surface decision / openai-decision）：');
+// 响应顶层是 {model, answers, usage}，两个面的 answers 一个是数组一个是对象
+t('openai-decision 200 / answers 数组',
+  { code: 0, out: '{"model":"gpt-6-luna","answers":[{"type":"predicate","name":"is_billing_issue","probability":1.0}],"usage":{"input_tokens":461,"output_tokens":0}}' },
+  true);
+t('decision(/v1/systemone) 200 / answers 对象',
+  { code: 0, out: '{"model":"jev-1.13.0","answers":{"is_urgent":{"type":"noul","noul":0.99}},"usage":{"input_tokens":424,"output_tokens":73}}' },
+  true);
+// 只有 answers 的信封：答案值里恰好有黑名单词（选项值叫 invalid）。不认 answers 为信封键时
+// 会落到兜底黑名单，把合法 200 判成失败（假红）。
+t('仅 answers 的信封 / 答案值含 invalid', { code: 0, out: '{"answers":[{"type":"choice","name":"status","choice":"invalid","confidence":0.9}]}' }, true);
+// SDK / ruby 格逐题打印一行，不是 JSON —— 走兜底黑名单，题目名里没有黑名单词
+t('openai-decision SDK 逐题打印', { code: 0, out: 'is_billing_issue probability: 1.0\ndepartment choice: billing confidence: 1.0\nurgency score: 2.0 confidence: 1.0\ninput_tokens: 461\n' }, true);
+t('openai-decision 400 错误信封',
+  { code: 0, out: '{"error":{"message":"Invalid \'questions[0].choices\': array too short.","type":"invalid_request_error","param":"questions[0].choices"}}' },
+  false);
+t('python SDK 版本过旧（无 decisions）', { code: 1, out: "Traceback (most recent call last):\nAttributeError: 'OpenAI' object has no attribute 'decisions'" }, false);
+
+// 逐题核对：classify 只看「有没有 error」，决策面另要求每道题的名字都出现在输出里
+function m(name, out, names, want) {
+  const got = JSON.stringify(missingAnswers(out, names));
+  if (got === JSON.stringify(want)) { pass++; console.log(`  ✓ ${name}`); }
+  else { fail++; console.log(`  ✗ ${name} — 期望 ${JSON.stringify(want)}，实得 ${got}`); }
+}
+const NAMES = ['is_billing_issue', 'department', 'urgency'];
+m('missingAnswers：三题都在 → 空', 'is_billing_issue 1\ndepartment billing\nurgency 2', NAMES, []);
+m('missingAnswers：缺一题 → 点名', '{"answers":[{"name":"is_billing_issue"},{"name":"department"}]}', NAMES, ['urgency']);
+m('missingAnswers：空输出 → 全缺', '', NAMES, NAMES);
 
 console.log(`\n结果：${pass} 通过 / ${fail} 失败`);
 process.exit(fail ? 1 : 0);

@@ -97,6 +97,20 @@ if (isMain && !BASE) {
   process.exit(2);
 }
 
+// --surface：验哪一个面。缺省 text = 四协议，行为与加这个参数之前逐字相同。另两个是与四协议
+// 正交的决策面：decision = /v1/systemone（generateDecisionCode），openai-decision = /v1/decisions
+// （generateOpenAIDecisionCode）。决策面各是一次同步 POST，没有流式，也不按 schema 解析协议。
+const SURFACES = ['text', 'decision', 'openai-decision'];
+const surface = argVal('--surface') || 'text';
+if (isMain && !SURFACES.includes(surface)) {
+  console.error(`✗ 未知 --surface: ${JSON.stringify(surface)}（可选：${SURFACES.join(' / ')}）。`);
+  process.exit(2);
+}
+if (isMain && surface !== 'text' && stream) {
+  console.error('✗ 决策面没有流式（请求体不收 stream），--stream 只能配 --surface text。');
+  process.exit(2);
+}
+
 const PROMPT = 'Reply with exactly: ok';
 
 /** 拉模型 schema，按 endpoints.kind 解析出该模型真支持的协议（与 UI 同源），
@@ -187,6 +201,19 @@ async function ensureNodeRuntime(installCmd) {
   }
 }
 
+// openai-decision 的 typescript 格调 client.decisions.create，openai-node 7.30.0 起才有。
+// 运行时目录常驻本地（已 gitignore），可能留着更早装的旧版 SDK —— 按能力判（有没有 decisions
+// 资源），不比版本号；缺了就升到最新。CI 每次都是全新安装，这一步在那里是空操作。
+async function ensureNodeDecisionsSdk() {
+  if (existsSync(join(RUNTIME, 'node_modules', 'openai', 'resources', 'decisions.js'))) return;
+  console.log('· node 运行时的 openai SDK 没有 decisions 资源，升级到最新（scripts/.verify-runtime）…');
+  try {
+    await pexec('npm', ['install', '--silent', '--no-audit', '--no-fund', 'openai@latest'], { cwd: RUNTIME, timeout: 180000 });
+  } catch (e) {
+    console.warn('  ⚠ openai SDK 升级失败，typescript 格会失败：', e.message?.slice(0, 120));
+  }
+}
+
 // ---- 2b) 其它语言运行时探测 / 准备（缺则该语言 skip）----
 // 探测统一走 config/languages.ts 的 probe：真跑一次版本命令拿退出码。
 // 不用 `command -v` —— macOS 自带的 java stub 能骗过它，探测通过但一编译就炸。
@@ -267,6 +294,33 @@ function makeCtx(paramKeys, props) {
   };
 }
 
+// ---- 3b) 决策面：生成代码 + 成功判据 ----
+// 决策面的产物要么打印整份响应 JSON（go / java / csharp / curl），要么逐题打一行
+// （python / typescript / ruby），两种形态里都有每道题的名字。所以除了 classify 的「没有 error」，
+// 还要求占位模板里**每道题的名字**都出现在输出里 —— 缺一个说明答案不全（解析分支漏了、
+// 或响应被截断），不算通过。题目名取自包的占位模板，与生成代码同源，不在这里抄一份。
+function surfaceDef(gen, id) {
+  if (id === 'decision') {
+    return {
+      generate: (lang) => gen.generateDecisionCode({ baseUrl: BASE, modelId: model, lang }),
+      questionNames: Object.keys(gen.DECISION_QUESTIONS_PLACEHOLDER),
+    };
+  }
+  if (id === 'openai-decision') {
+    return {
+      generate: (lang) => gen.generateOpenAIDecisionCode({ baseUrl: BASE, modelId: model, lang }),
+      questionNames: gen.OPENAI_DECISION_QUESTIONS_PLACEHOLDER.map((q) => q.name),
+    };
+  }
+  throw new Error(`surfaceDef: 未知面 ${id}`);
+}
+
+/** 输出里没出现的题目名（空数组 = 每道题都有答案）。 */
+function missingAnswers(out, names) {
+  const text = String(out || '');
+  return names.filter((n) => !text.includes(n));
+}
+
 // dotnet：探测 SDK 主版本，TargetFramework 对齐已装运行时（只装了 SDK10 时 net8.0 会缺运行时跑不起来）。
 async function detectDotnet() {
   try {
@@ -302,8 +356,25 @@ function srcName(def, proto) {
 }
 
 async function runCombo(gen, proto, lang, rt) {
-  const def = gen.langDef(lang);
   const code = gen.generateCode(proto, lang, makeCtx(rt.paramKeysByProto[proto], rt.paramPropsByProto?.[proto]));
+  // ruby：messages 走原生 net/http（零 gem），chat / responses 才要 ruby-openai。
+  return runCode(gen, proto, lang, code, rt, { rubyGem: proto !== 'messages' });
+}
+
+// 决策面：七门语言全是原生 HTTP 或官方 SDK，ruby 用 net/http，不要 gem。
+async function runSurfaceCombo(gen, sdef, row, lang, rt) {
+  const r = await runCode(gen, row, lang, sdef.generate(lang), rt, { rubyGem: false });
+  if (r.ok !== true) return r;
+  const missing = missingAnswers(r.out, sdef.questionNames);
+  return missing.length ? { ok: false, note: `输出里缺这些题的答案：${missing.join(', ')}｜${r.note}` } : r;
+}
+
+// 按语言把一段生成好的代码真跑一遍并判定。`row` 只用于临时文件命名（协议名或面名）。
+// 返回值带上原始输出 `out`，决策面要拿它核对每道题的答案在不在。
+async function runCode(gen, row, lang, code, rt, { rubyGem }) {
+  const def = gen.langDef(lang);
+  const proto = row;
+  const judge = (res) => ({ ...classify(res), out: res.out });
   // 7 门语言的示例现在**全部从环境变量取 key**（os.environ / process.env / os.Getenv /
   // System.getenv / Environment.GetEnvironmentVariable / ENV / $VAR），所以注入方式只有一种：
   // 设同名 env，**零字节替换**。变量名从包里读（gen.API_KEY_PLACEHOLDER），不抄一份字面量 ——
@@ -314,12 +385,12 @@ async function runCombo(gen, proto, lang, rt) {
     if (lang === 'curl') {
       const file = join(dir, srcName(def, proto));
       await writeFile(file, code);
-      return classify(await capture('bash', [file], { env: keyEnv }));
+      return judge(await capture('bash', [file], { env: keyEnv }));
     }
     if (lang === 'python') {
       const file = join(dir, srcName(def, proto));
       await writeFile(file, code);
-      return classify(await capture('python3', [file], { env: keyEnv }));
+      return judge(await capture('python3', [file], { env: keyEnv }));
     }
     if (lang === 'javascript') {
       if (!rt.nodeReady) return { ok: null, note: 'node SDK 未就绪，跳过' };
@@ -327,7 +398,7 @@ async function runCombo(gen, proto, lang, rt) {
       const file = join(RUNTIME, srcName(def, proto));
       await writeFile(file, code);
       try {
-        return classify(await capture('node', [file], { env: keyEnv }));
+        return judge(await capture('node', [file], { env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -338,7 +409,7 @@ async function runCombo(gen, proto, lang, rt) {
       const file = join(RUNTIME_GO, srcName(def, proto));
       await writeFile(file, code);
       try {
-        return classify(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000, env: keyEnv }));
+        return judge(await capture('go', ['run', file], { cwd: RUNTIME_GO, timeout: 120000, env: keyEnv }));
       } finally {
         await rm(file, { force: true }).catch(() => {});
       }
@@ -348,7 +419,7 @@ async function runCombo(gen, proto, lang, rt) {
       // 单文件源码模式：java Main.java（JDK 11+，零依赖）——文件名必须与 public class 同名
       const file = join(dir, srcName(def, proto));
       await writeFile(file, code);
-      return classify(await capture('java', [file], { timeout: 120000, env: keyEnv }));
+      return judge(await capture('java', [file], { timeout: 120000, env: keyEnv }));
     }
     if (lang === 'csharp') {
       if (!rt.dotnet.ok) return { ok: null, note: 'dotnet SDK 未安装，跳过' };
@@ -364,16 +435,16 @@ async function runCombo(gen, proto, lang, rt) {
         DOTNET_CLI_TELEMETRY_OPTOUT: '1',
         DOTNET_SKIP_FIRST_TIME_EXPERIENCE: '1',
       };
-      return classify(await capture('dotnet', ['run', '--project', dir], { cwd: dir, timeout: 180000, env: dotnetEnv }));
+      return judge(await capture('dotnet', ['run', '--project', dir], { cwd: dir, timeout: 180000, env: dotnetEnv }));
     }
     if (lang === 'ruby') {
       if (!rt.ruby.rubyOk) return { ok: null, note: 'ruby 未安装，跳过' };
       // messages 用原生 net/http（无需 gem）；chat/responses 用 ruby-openai gem
-      if (proto !== 'messages' && !rt.ruby.gemOk)
+      if (rubyGem && !rt.ruby.gemOk)
         return { ok: null, note: rt.ruby.reason || 'ruby-openai 未就绪，跳过' };
       const file = join(dir, srcName(def, proto));
       await writeFile(file, code);
-      return classify(await capture('ruby', [file], { env: { ...rt.ruby.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
+      return judge(await capture('ruby', [file], { env: { ...rt.ruby.env, [gen.API_KEY_PLACEHOLDER]: KEY } }));
     }
     // config/languages.ts 加了语言但这里没加执行分支 —— 显式标出，不静默当 skip 放行。
     return { ok: false, note: `harness 未实现该语言的执行方式：${lang}` };
@@ -430,7 +501,9 @@ function extractJsonObjects(text) {
 // 是否像一个 API 响应信封(据此决定走「结构化优先」还是「兜底黑名单」)。
 // 注意:不含 'message' —— 顶层 {"message":"...错误..."} 若无 error 键会被误当成功信封而假绿;
 // chat/messages/responses 成功一律带 id/usage/content/choices 之一,无需靠 message 识别。
-const ENVELOPE_KEYS = ['choices', 'candidates', 'content', 'output', 'output_text', 'id', 'usage', 'model', 'object', 'delta'];
+// answers：两个决策面的响应顶层是 {model, answers, usage}（model / usage 本来就在表里，补上 answers
+// 是为了响应缺 usage 时也认得出是信封）。
+const ENVELOPE_KEYS = ['choices', 'candidates', 'content', 'output', 'output_text', 'id', 'usage', 'model', 'object', 'delta', 'answers'];
 function looksLikeEnvelope(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
   if ('error' in o) return true;
@@ -482,18 +555,29 @@ async function mapPool(items, limit, fn) {
 }
 
 // 单测入口:仅导出纯判定函数,不触发主流程(被 import 时 isMain=false)。
-export { classify, extractJsonObjects, looksLikeEnvelope, isRealError, OK_FAIL_RE, HTTP_ERR_CODE, NET_RETRY_RE };
+export { classify, extractJsonObjects, looksLikeEnvelope, isRealError, missingAnswers, OK_FAIL_RE, HTTP_ERR_CODE, NET_RETRY_RE };
 
 // ---- 5) 主流程 ----
 if (isMain) (async () => {
   const gen = await loadCodegen();
   // 语言与协议清单一律取自包的 config 层：加语言/加协议自动进验证矩阵，不会「加了却没被真跑」。
   const LANGS = gen.LANGS.map((l) => l.id);
-  const ALL_PROTOS = gen.PROTOCOLS.map((p) => p.id);
-  const { protos: PROTOS, paramKeysByProto, paramPropsByProto } =
-    await resolveSchema(model, gen.KIND_TO_PROTO, ALL_PROTOS); // 协议 + 各协议 paramKeys
-  console.log(`\naihubmix codegen 验证 — model=${model}  base=${BASE}  stream=${stream}`);
-  console.log(`langs=[${LANGS}]  protos=[${PROTOS}]（按 schema 解析）\n`);
+  // 矩阵的行：text 是按 schema 解析出的协议；决策面只有一行（面本身）。
+  let ROWS;
+  let schemaRt = {};
+  if (surface === 'text') {
+    const ALL_PROTOS = gen.PROTOCOLS.map((p) => p.id);
+    const { protos: PROTOS, paramKeysByProto, paramPropsByProto } =
+      await resolveSchema(model, gen.KIND_TO_PROTO, ALL_PROTOS); // 协议 + 各协议 paramKeys
+    ROWS = PROTOS;
+    schemaRt = { paramKeysByProto, paramPropsByProto };
+    console.log(`\naihubmix codegen 验证 — model=${model}  base=${BASE}  stream=${stream}`);
+    console.log(`langs=[${LANGS}]  protos=[${PROTOS}]（按 schema 解析）\n`);
+  } else {
+    ROWS = [surface];
+    console.log(`\naihubmix codegen 验证 — model=${model}  base=${BASE}  surface=${surface}`);
+    console.log(`langs=[${LANGS}]  surface=${surface}（占位模板，逐题核对答案）\n`);
+  }
   // 各语言运行时按需准备（缺则对应组合 skip，不阻塞）
   const [nodeReady, goRt, rubyRt, javaOk, dotnet] = await Promise.all([
     ensureNodeRuntime(gen.langDef('javascript').install),
@@ -502,7 +586,10 @@ if (isMain) (async () => {
     probeOk(gen.langDef('java')),
     detectDotnet(),
   ]);
-  const rt = { nodeReady, go: goRt, ruby: rubyRt, javaOk, dotnet, paramKeysByProto, paramPropsByProto };
+  if (surface === 'openai-decision' && nodeReady) await ensureNodeDecisionsSdk();
+  const rt = { nodeReady, go: goRt, ruby: rubyRt, javaOk, dotnet, ...schemaRt };
+  const sdef = surface === 'text' ? null : surfaceDef(gen, surface);
+  const runRow = (row, lang) => (sdef ? runSurfaceCombo(gen, sdef, row, lang, rt) : runCombo(gen, row, lang, rt));
   for (const m of [goRt.reason, rubyRt.reason].filter(Boolean)) console.log(`  ⚠ ${m}`);
   if (!javaOk) console.log('  ⚠ JDK 未安装：java 组合将 skip');
   if (!dotnet.ok) console.log('  ⚠ dotnet SDK 未安装：csharp 组合将 skip');
@@ -512,18 +599,18 @@ if (isMain) (async () => {
   // 真正要看的那一格。不传就是全量，行为不变。
   const only = (argVal('--only') || '').split(',').map((s) => s.trim()).filter(Boolean);
   const jobs = [];
-  for (const proto of PROTOS) for (const lang of LANGS) {
+  for (const proto of ROWS) for (const lang of LANGS) {
     if (only.length && !only.includes(`${proto}/${lang}`)) continue;
     jobs.push({ proto, lang });
   }
   if (only.length && !jobs.length) {
-    console.error(`✗ --only 没匹配到任何组合。可选：${PROTOS.map((p) => `${p}/<lang>`).join(' ')}`);
+    console.error(`✗ --only 没匹配到任何组合。可选：${ROWS.map((p) => `${p}/<lang>`).join(' ')}`);
     process.exit(2);
   }
   // 并发上限:21 组合(协议×语言)全并发在 2 核 runner 上真实编译+调用会互相拖慢→逼近超时→成片假红。
   // 限 4 并发,失败/异常隔离到单组合(runCombo 内已 try/catch,这里再兜 writeFile/mkdtemp 冒泡)。
   const results = await mapPool(jobs, 4, (j) =>
-    runCombo(gen, j.proto, j.lang, rt)
+    runRow(j.proto, j.lang)
       .then((r) => ({ ...j, ...r }))
       .catch((e) => ({ ...j, ok: false, note: `harness err: ${(e.message || e).toString().slice(0, 100)}` })));
 
@@ -531,10 +618,11 @@ if (isMain) (async () => {
   const cell = (r) => (!r || r.ok === null ? 'skip' : r.ok ? '✓' : '✗');
   const pad = (s, n) => s.padEnd(n);
   const W = 12;
-  console.log(pad('protocol', 12) + LANGS.map((l) => pad(l, W)).join(''));
-  for (const proto of PROTOS) {
+  const RW = Math.max(12, ...ROWS.map((r) => r.length + 2)); // openai-decision 比 12 宽
+  console.log(pad(surface === 'text' ? 'protocol' : 'surface', RW) + LANGS.map((l) => pad(l, W)).join(''));
+  for (const proto of ROWS) {
     const row = results.filter((r) => r.proto === proto);
-    console.log(pad(proto, 12) + LANGS.map((l) => pad(cell(row.find((r) => r.lang === l)), W)).join(''));
+    console.log(pad(proto, RW) + LANGS.map((l) => pad(cell(row.find((r) => r.lang === l)), W)).join(''));
   }
   // 失败详情
   const bad = results.filter((r) => r.ok === false);
